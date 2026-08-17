@@ -1,0 +1,290 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'api_config.dart';
+
+class ApiException implements Exception {
+  ApiException(this.message, {this.statusCode, this.isNetwork = false});
+
+  final String message;
+  final int? statusCode;
+  final bool isNetwork;
+
+  @override
+  String toString() => message;
+}
+
+class ApiClient {
+  ApiClient() {
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: ApiConfig.baseUrl,
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 35),
+        sendTimeout: const Duration(seconds: 35),
+        headers: {'Accept': 'application/json'},
+      ),
+    );
+
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = await getToken();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+      ),
+    );
+  }
+
+  late final Dio _dio;
+
+  final _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(resetOnError: false),
+  );
+
+  static const _prefsTokenKey = 'cityshop_admin_auth_token_backup';
+
+  Future<void> saveToken(String token) async {
+    try {
+      await _storage.write(key: ApiConfig.tokenKey, value: token);
+    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsTokenKey, token);
+  }
+
+  Future<void> clearToken() async {
+    try {
+      await _storage.delete(key: ApiConfig.tokenKey);
+    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsTokenKey);
+  }
+
+  Future<String?> getToken() async {
+    try {
+      return await _readToken().timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      try {
+        final prefs = await SharedPreferences.getInstance()
+            .timeout(const Duration(seconds: 2));
+        return prefs.getString(_prefsTokenKey);
+      } catch (_) {
+        return null;
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _readToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final backup = prefs.getString(_prefsTokenKey);
+      if (backup != null && backup.isNotEmpty) {
+        unawaited(_syncSecureToken(backup));
+        return backup;
+      }
+    } catch (_) {}
+
+    try {
+      final secure = await _storage.read(key: ApiConfig.tokenKey);
+      if (secure != null && secure.isNotEmpty) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_prefsTokenKey, secure);
+        } catch (_) {}
+        return secure;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _syncSecureToken(String token) async {
+    try {
+      await _storage.write(key: ApiConfig.tokenKey, value: token);
+    } catch (_) {}
+  }
+
+  Future<Response<dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+    int maxAttempts = 2,
+  }) {
+    return _withRetry(
+      () => _dio.get(path, queryParameters: query),
+      maxAttempts: maxAttempts,
+    );
+  }
+
+  Future<Response<dynamic>> post(
+    String path, {
+    Object? data,
+    int maxAttempts = 2,
+  }) {
+    return _withRetry(
+      () => _dio.post(
+        path,
+        data: data,
+        options: data == null || data is FormData
+            ? null
+            : Options(contentType: Headers.jsonContentType),
+      ),
+      maxAttempts: maxAttempts,
+    );
+  }
+
+  Future<Response<dynamic>> patch(
+    String path, {
+    Object? data,
+    int maxAttempts = 2,
+  }) {
+    return _withRetry(
+      () => _dio.patch(
+        path,
+        data: data,
+        options: data == null
+            ? null
+            : Options(contentType: Headers.jsonContentType),
+      ),
+      maxAttempts: maxAttempts,
+    );
+  }
+
+  Future<Response<dynamic>> put(
+    String path, {
+    Object? data,
+    int maxAttempts = 2,
+  }) {
+    return _withRetry(
+      () => _dio.put(
+        path,
+        data: data,
+        options: data == null
+            ? null
+            : Options(contentType: Headers.jsonContentType),
+      ),
+      maxAttempts: maxAttempts,
+    );
+  }
+
+  Future<Response<dynamic>> delete(
+    String path, {
+    Object? data,
+    int maxAttempts = 2,
+  }) {
+    return _withRetry(
+      () => _dio.delete(
+        path,
+        data: data,
+        options: data == null
+            ? null
+            : Options(contentType: Headers.jsonContentType),
+      ),
+      maxAttempts: maxAttempts,
+    );
+  }
+
+  Future<Response<dynamic>> postForm(
+    String path,
+    Map<String, dynamic> fields, {
+    String? fileField,
+    String? filePath,
+    String filename = 'upload.jpg',
+  }) {
+    return _withRetry(
+      () async {
+        final map = Map<String, dynamic>.from(fields);
+        if (fileField != null && filePath != null) {
+          map[fileField] = await MultipartFile.fromFile(filePath, filename: filename);
+        }
+        return _dio.post(
+          path,
+          data: FormData.fromMap(map),
+          options: Options(
+            sendTimeout: const Duration(seconds: 120),
+            receiveTimeout: const Duration(seconds: 120),
+          ),
+        );
+      },
+      maxAttempts: 2,
+    );
+  }
+
+  Future<Response<dynamic>> _withRetry(
+    Future<Response<dynamic>> Function() run, {
+    int maxAttempts = 2,
+  }) async {
+    DioException? last;
+    final attempts = maxAttempts < 1 ? 1 : maxAttempts;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await run();
+      } on DioException catch (e) {
+        last = e;
+        final canRetry = _isTransient(e) && attempt < attempts;
+        if (!canRetry) throw _mapError(e);
+        await Future<void>.delayed(Duration(milliseconds: 250 * attempt));
+      }
+    }
+    throw _mapError(last!);
+  }
+
+  bool _isTransient(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        return true;
+      case DioExceptionType.badResponse:
+        final code = e.response?.statusCode ?? 0;
+        return code == 502 || code == 503 || code == 504;
+      default:
+        return false;
+    }
+  }
+
+  ApiException _mapError(DioException e) {
+    final data = e.response?.data;
+    String message = 'Something went wrong. Please try again.';
+    var isNetwork = false;
+
+    if (data is Map) {
+      if (data['message'] is String) {
+        message = data['message'] as String;
+      } else if (data['errors'] is Map) {
+        final errors = data['errors'] as Map;
+        for (final value in errors.values) {
+          if (value is List && value.isNotEmpty) {
+            message = value.first.toString();
+            break;
+          }
+          if (value != null) {
+            message = value.toString();
+            break;
+          }
+        }
+      }
+    } else if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      isNetwork = true;
+      message = 'Connection is slow. Please try again.';
+    } else if (e.type == DioExceptionType.connectionError) {
+      isNetwork = true;
+      message = 'Couldn’t reach CityShop. Check your network and try again.';
+    }
+
+    return ApiException(
+      message,
+      statusCode: e.response?.statusCode,
+      isNetwork: isNetwork,
+    );
+  }
+}
