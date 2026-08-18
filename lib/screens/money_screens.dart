@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
@@ -7,7 +8,9 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
 class MoneyScreen extends StatefulWidget {
-  const MoneyScreen({super.key});
+  const MoneyScreen({super.key, this.initialTab = 'withdrawals'});
+
+  final String initialTab;
 
   @override
   State<MoneyScreen> createState() => _MoneyScreenState();
@@ -24,11 +27,19 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 2, vsync: this, initialIndex: widget.initialTab == 'deposits' ? 1 : 0);
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging) _load();
     });
     _load();
+  }
+
+  @override
+  void didUpdateWidget(MoneyScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTab == widget.initialTab) return;
+    final index = widget.initialTab == 'deposits' ? 1 : 0;
+    if (_tabs.index != index) _tabs.animateTo(index);
   }
 
   @override
@@ -81,11 +92,23 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Money'),
+        actions: [
+          IconButton(
+            tooltip: 'Transfer RMB',
+            onPressed: () => context.push('/china-transfers'),
+            icon: const Icon(Icons.currency_exchange),
+          ),
+          IconButton(
+            tooltip: 'Seller bank fees',
+            onPressed: () => context.push('/settings/withdrawal'),
+            icon: const Icon(Icons.account_balance),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           tabs: const [
             Tab(text: 'Withdrawals'),
-            Tab(text: 'Top-ups'),
+            Tab(text: 'Deposits'),
           ],
         ),
       ),
@@ -248,7 +271,7 @@ class _TopUpCard extends StatelessWidget {
                   ),
                   TextButton(
                     onPressed: () async {
-                      final notes = await promptText(context, title: 'Reject top-up', label: 'Admin notes');
+                      final notes = await promptText(context, title: 'Reject deposit', label: 'Admin notes');
                       if (notes == null) return;
                       await onAct('/admin/top-ups/$id/reject', data: {'admin_notes': notes});
                     },

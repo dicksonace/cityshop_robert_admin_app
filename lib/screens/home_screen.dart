@@ -82,6 +82,61 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(color: AppColors.textSecondary),
                       ),
                       const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _QuickAction(
+                              label: 'Deposit',
+                              count: stats['pending_topups'],
+                              icon: Icons.add_card_outlined,
+                              onTap: () => context.go('/money?tab=deposits'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _QuickAction(
+                              label: 'Withdrawal',
+                              count: stats['pending_withdrawals'],
+                              icon: Icons.outbond_outlined,
+                              onTap: () => context.go('/money'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _QuickAction(
+                              label: 'Transfer RMB',
+                              count: stats['pending_rmb'],
+                              icon: Icons.currency_exchange,
+                              onTap: () => context.push('/china-transfers'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        child: ListTile(
+                          leading: const Icon(Icons.badge_outlined, color: AppColors.accent),
+                          title: const Text('Ghana Card KYC', style: TextStyle(fontWeight: FontWeight.w800)),
+                          subtitle: Text('${stats['pending_kyc'] ?? 0} waiting for approve / reject / improve.'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push('/kyc'),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        child: ListTile(
+                          leading: const Icon(Icons.account_balance, color: AppColors.accent),
+                          title: const Text('Seller bank withdrawal fees', style: TextStyle(fontWeight: FontWeight.w800)),
+                          subtitle: const Text('Fee sellers see when they cash out to a Ghana bank.'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push('/settings/withdrawal'),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       GridView.count(
                         crossAxisCount: 2,
                         shrinkWrap: true,
@@ -92,9 +147,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           _StatTile('Pending sellers', stats['pending_sellers'], '/sellers'),
                           _StatTile('Withdrawals', stats['pending_withdrawals'], '/money'),
-                          _StatTile('Top-ups', stats['pending_topups'], '/money'),
+                          _StatTile('Deposits', stats['pending_topups'], '/money?tab=deposits'),
                           _StatTile('Open refunds', stats['open_disputes'], '/disputes'),
-                          _StatTile('Pending funds', stats['pending_funds'], '/pending-funds'),
+                          _StatTile('Transfer RMB', stats['pending_rmb'], '/china-transfers'),
                           _StatTile('Unprocessed', stats['unprocessed_orders'], '/orders'),
                           _StatTile('Awaiting confirm', stats['awaiting_confirmation'], '/orders'),
                           _StatTile('Paid revenue', money.format(asDouble(stats['paid_revenue'])), null),
@@ -154,7 +209,15 @@ class _StatTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: route == null ? null : () => context.go(route!),
+        onTap: route == null
+            ? null
+            : () {
+                if (route!.startsWith('/money') || route == '/sellers' || route == '/orders') {
+                  context.go(route!);
+                } else {
+                  context.push(route!);
+                }
+              },
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -166,6 +229,47 @@ class _StatTile extends StatelessWidget {
               ),
               const Spacer(),
               Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.count,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final dynamic count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(icon, color: AppColors.accent),
+              const SizedBox(height: 8),
+              Text(label, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+              const SizedBox(height: 2),
+              Text(
+                '${count ?? 0}',
+                style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700),
+              ),
             ],
           ),
         ),

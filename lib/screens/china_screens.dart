@@ -15,7 +15,7 @@ class ChinaTransfersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AdminResourceList(
-      title: 'Buy RMB (GHS → China)',
+      title: 'Transfer RMB',
       path: '/admin/china-transfers',
       filters: const ['open', 'all', 'payment_submitted', 'processing', 'rmb_sent', 'completed'],
       searchHint: 'Search reference or buyer',

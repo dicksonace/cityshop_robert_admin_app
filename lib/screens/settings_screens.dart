@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../store/admin_store.dart';
+import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
 class SmsSettingsScreen extends StatefulWidget {
@@ -214,9 +216,11 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
   String? error;
   Map<String, dynamic> settings = {};
   Map<String, dynamic> auto = {};
+  String appliesTo = 'bank';
   final _amount = TextEditingController();
   final _momo = TextEditingController();
   final _autoPercent = TextEditingController();
+  final List<_BankTierEditors> _tiers = [];
 
   @override
   void initState() {
@@ -229,7 +233,25 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
     _amount.dispose();
     _momo.dispose();
     _autoPercent.dispose();
+    for (final tier in _tiers) {
+      tier.dispose();
+    }
     super.dispose();
+  }
+
+  void _replaceTiers(List<Map<String, dynamic>> rows) {
+    for (final tier in _tiers) {
+      tier.dispose();
+    }
+    _tiers
+      ..clear()
+      ..addAll(rows.map(_BankTierEditors.fromMap));
+    if (_tiers.isEmpty) {
+      _tiers.addAll([
+        _BankTierEditors(min: '10', max: '999.99', fee: '10'),
+        _BankTierEditors(min: '1000', max: '25000', fee: '20'),
+      ]);
+    }
   }
 
   Future<void> _load() async {
@@ -238,9 +260,12 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
       if (!mounted) return;
       settings = asMap(data['settings']);
       auto = asMap(data['auto_paystack']);
-      _amount.text = str(settings['amount'], '0');
+      appliesTo = str(settings['applies_to'], 'bank');
+      if (appliesTo == 'all') appliesTo = 'bank';
+      _amount.text = str(settings['amount'], '10');
       _momo.text = str(settings['momo_amount'], '0');
       _autoPercent.text = str(auto['fee_percent'], '0');
+      _replaceTiers(asMaps(settings['bank_tiers']));
       setState(() => loading = false);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -254,7 +279,19 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Withdrawal fees')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/more');
+            }
+          },
+        ),
+        title: const Text('Seller bank withdrawal fees'),
+      ),
       body: loading
           ? const FullPageLoader()
           : error != null
@@ -262,30 +299,110 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    SwitchListTile(
-                      title: const Text('Fees enabled'),
-                      value: settings['enabled'] == true,
-                      onChanged: (value) => setState(() => settings['enabled'] = value),
+                    const Text(
+                      'Sellers see these fees in the CityShop app when they cash out to a Ghana bank. MoMo stays free unless you add a MoMo fee below.',
+                      style: TextStyle(color: AppColors.textSecondary, height: 1.35),
                     ),
-                    TextField(controller: _amount, decoration: const InputDecoration(labelText: 'Bank fee GHS')),
-                    const SizedBox(height: 8),
-                    TextField(controller: _momo, decoration: const InputDecoration(labelText: 'MoMo fee GHS')),
+                    const SizedBox(height: 12),
                     SwitchListTile(
-                      title: const Text('Auto Paystack payouts'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable Paystack auto withdrawal'),
+                      subtitle: const Text('Pay out without the admin queue. Uses the percent fee instead of bank bands.'),
                       value: auto['enabled'] == true,
                       onChanged: (value) => setState(() => auto['enabled'] = value),
                     ),
-                    TextField(controller: _autoPercent, decoration: const InputDecoration(labelText: 'Auto Paystack fee %')),
+                    TextField(
+                      controller: _autoPercent,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'Auto Paystack fee %'),
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enable withdrawal fees'),
+                      subtitle: const Text('Used when auto Paystack is off.'),
+                      value: settings['enabled'] == true,
+                      onChanged: (value) => setState(() => settings['enabled'] = value),
+                    ),
+                    TextField(
+                      controller: _momo,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'MoMo withdrawal fee (GHS)',
+                        helperText: 'Default GH₵0 — sellers are not charged for MoMo unless you set this.',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: appliesTo,
+                      decoration: const InputDecoration(
+                        labelText: 'Apply bank fees to',
+                        helperText: 'This turns bank bands on or off. MoMo always uses the MoMo fee field.',
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'bank', child: Text('Charge bank fee bands')),
+                        DropdownMenuItem(value: 'momo', child: Text('Do not charge bank fees')),
+                        DropdownMenuItem(value: 'none', child: Text('Disable all flat fees')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => appliesTo = value);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Bank fee bands', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Example: below GH₵1,000 → GH₵10 · from GH₵1,000 → GH₵20. Sellers see this on Bank cash-out.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                    ),
+                    const SizedBox(height: 8),
+                    for (var i = 0; i < _tiers.length; i++) ...[
+                      _BankTierCard(
+                        tier: _tiers[i],
+                        onRemove: _tiers.length <= 1
+                            ? null
+                            : () => setState(() {
+                                  _tiers.removeAt(i).dispose();
+                                }),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    OutlinedButton.icon(
+                      onPressed: _tiers.length >= 10
+                          ? null
+                          : () => setState(() => _tiers.add(_BankTierEditors(min: '0', max: '', fee: '0'))),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add bank band'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _amount,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Fallback bank fee (GHS)',
+                        helperText: 'Used if an amount does not match a band.',
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     PrimaryButton(
-                      label: 'Save',
+                      label: 'Save seller bank fees',
                       onPressed: () async {
                         try {
                           final result = await context.read<AdminStore>().postJson('/admin/settings/withdrawal', data: {
                             'enabled': settings['enabled'] == true,
                             'amount': _amount.text,
                             'momo_amount': _momo.text,
-                            'applies_to': settings['applies_to'] ?? 'all',
+                            'applies_to': appliesTo,
+                            'bank_tiers': _tiers
+                                .map(
+                                  (tier) => {
+                                    'min': tier.min.text,
+                                    'max': tier.max.text.trim().isEmpty ? null : tier.max.text,
+                                    'fee': tier.fee.text,
+                                  },
+                                )
+                                .toList(),
                             'auto_paystack_enabled': auto['enabled'] == true,
                             'auto_paystack_fee_percent': _autoPercent.text,
                           });
@@ -299,6 +416,90 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _BankTierEditors {
+  _BankTierEditors({required String min, required String max, required String fee})
+      : min = TextEditingController(text: min),
+        max = TextEditingController(text: max),
+        fee = TextEditingController(text: fee);
+
+  factory _BankTierEditors.fromMap(Map<String, dynamic> row) {
+    final max = row['max'];
+    return _BankTierEditors(
+      min: str(row['min'], '0'),
+      max: max == null ? '' : str(max),
+      fee: str(row['fee'], '0'),
+    );
+  }
+
+  final TextEditingController min;
+  final TextEditingController max;
+  final TextEditingController fee;
+
+  void dispose() {
+    min.dispose();
+    max.dispose();
+    fee.dispose();
+  }
+}
+
+class _BankTierCard extends StatelessWidget {
+  const _BankTierCard({required this.tier, this.onRemove});
+
+  final _BankTierEditors tier;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.ringOrange,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFDBA74)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: tier.min,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'From (GHS)'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: tier.max,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'To (GHS)', hintText: 'blank = open'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: tier.fee,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Fee (GHS)'),
+                ),
+              ),
+            ],
+          ),
+          if (onRemove != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onRemove,
+                child: const Text('Remove band'),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

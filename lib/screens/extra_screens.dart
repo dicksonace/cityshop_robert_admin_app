@@ -84,6 +84,16 @@ class _AdminResourceListState extends State<AdminResourceList> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/more');
+            }
+          },
+        ),
         title: Text(widget.title),
         actions: [
           if (widget.onCreate != null)

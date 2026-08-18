@@ -4,6 +4,7 @@ import '../screens/auth_screens.dart';
 import '../screens/china_screens.dart';
 import '../screens/extra_screens.dart';
 import '../screens/home_screen.dart';
+import '../screens/kyc_screens.dart';
 import '../screens/money_screens.dart';
 import '../screens/more_screens.dart';
 import '../screens/orders_screens.dart';
@@ -38,7 +39,12 @@ GoRouter createRouter(AdminStore store) {
           GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
           GoRoute(path: '/sellers', builder: (_, _) => const SellersScreen()),
           GoRoute(path: '/orders', builder: (_, _) => const OrdersScreen()),
-          GoRoute(path: '/money', builder: (_, _) => const MoneyScreen()),
+          GoRoute(
+            path: '/money',
+            builder: (_, state) => MoneyScreen(
+              initialTab: state.uri.queryParameters['tab'] ?? 'withdrawals',
+            ),
+          ),
           GoRoute(path: '/more', builder: (_, _) => const MoreScreen()),
         ],
       ),
@@ -56,6 +62,11 @@ GoRouter createRouter(AdminStore store) {
       GoRoute(
         path: '/buyers/:id',
         builder: (_, state) => BuyerDetailScreen(id: int.parse(state.pathParameters['id']!)),
+      ),
+      GoRoute(path: '/kyc', builder: (_, _) => const KycQueueScreen()),
+      GoRoute(
+        path: '/kyc/:id',
+        builder: (_, state) => KycDetailScreen(id: int.parse(state.pathParameters['id']!)),
       ),
       GoRoute(path: '/invites', builder: (_, _) => const InvitesScreen()),
       GoRoute(path: '/reports', builder: (_, _) => const ReportsScreen()),
