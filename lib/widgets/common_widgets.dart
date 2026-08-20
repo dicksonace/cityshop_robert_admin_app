@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../api/api_config.dart';
@@ -357,4 +358,15 @@ void showSnack(BuildContext context, String message, {bool error = false}) {
       backgroundColor: error ? AppColors.danger : null,
     ),
   );
+}
+
+Future<void> copyText(BuildContext context, String value, {String label = 'Copied'}) async {
+  final text = value.trim();
+  if (text.isEmpty) {
+    showSnack(context, 'Nothing to copy.', error: true);
+    return;
+  }
+  await Clipboard.setData(ClipboardData(text: text));
+  if (!context.mounted) return;
+  showSnack(context, label);
 }

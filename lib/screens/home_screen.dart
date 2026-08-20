@@ -150,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _StatTile('Deposits', stats['pending_topups'], '/money?tab=deposits'),
                           _StatTile('Open refunds', stats['open_disputes'], '/disputes'),
                           _StatTile('Transfer RMB', stats['pending_rmb'], '/china-transfers'),
+                          _StatTile('Pending funds', stats['pending_funds'], '/pending-funds'),
                           _StatTile('Unprocessed', stats['unprocessed_orders'], '/orders'),
                           _StatTile('Awaiting confirm', stats['awaiting_confirmation'], '/orders'),
                           _StatTile('Paid revenue', money.format(asDouble(stats['paid_revenue'])), null),
@@ -179,11 +180,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       else
                         ...pendingWithdrawals.map((item) {
                           final userMap = asMap(item['user']);
+                          final number = str(item['momo_number']);
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(money.format(asDouble(item['amount']))),
                             subtitle: Text(
-                              '${str(userMap['name'])} · ${str(item['network'])} ${str(item['momo_number'])}',
+                              '${str(userMap['name'])} · ${str(item['network'])} $number',
+                            ),
+                            trailing: IconButton(
+                              tooltip: 'Copy number',
+                              onPressed: () => copyText(context, number, label: 'Account number copied.'),
+                              icon: const Icon(Icons.copy, size: 18),
                             ),
                             onTap: () => context.go('/money'),
                           );

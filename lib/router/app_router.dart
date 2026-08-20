@@ -54,6 +54,10 @@ GoRouter createRouter(AdminStore store) {
           id: int.parse(state.pathParameters['id']!),
         ),
       ),
+      GoRoute(
+        path: '/orders/:id',
+        builder: (_, state) => OrderDetailScreen(id: int.parse(state.pathParameters['id']!)),
+      ),
       GoRoute(path: '/products', builder: (_, _) => const ProductsScreen()),
       GoRoute(path: '/disputes', builder: (_, _) => const DisputesScreen()),
       GoRoute(path: '/pending-funds', builder: (_, _) => const PendingFundsScreen()),

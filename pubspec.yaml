@@ -1,7 +1,7 @@
 name: cityshop_admin
 description: CityShop administrator app — separate from the shopper/seller APK.
 publish_to: "none"
-version: 1.0.6+7
+version: 1.0.13+14
 
 environment:
   sdk: ^3.12.2
@@ -18,6 +18,7 @@ dependencies:
   cached_network_image: ^3.4.1
   intl: ^0.20.3
   image_picker: ^1.2.3
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
@@ -416,7 +417,9 @@ class _PendingFundsScreenState extends State<PendingFundsScreen> {
   String status = 'pending';
   bool loading = true;
   String? error;
+  int? busyId;
   List<Map<String, dynamic>> items = [];
+  Map<String, dynamic> counts = {};
 
   @override
   void initState() {
@@ -430,10 +433,14 @@ class _PendingFundsScreenState extends State<PendingFundsScreen> {
       error = null;
     });
     try {
-      final data = await context.read<AdminStore>().getJson('/admin/pending-funds', query: {'status': status});
+      final data = await context.read<AdminStore>().getJson(
+        '/admin/pending-funds',
+        query: {'status': status, 'per_page': 50},
+      );
       if (!mounted) return;
       setState(() {
         items = asMaps(data['data']);
+        counts = asMap(data['counts']);
         loading = false;
       });
     } on ApiException catch (e) {
@@ -445,20 +452,137 @@ class _PendingFundsScreenState extends State<PendingFundsScreen> {
     }
   }
 
+  String _formatDate(dynamic value) {
+    final raw = str(value);
+    if (raw.isEmpty) return '—';
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    return DateFormat('d MMM yyyy, hh:mm a').format(dt.toLocal());
+  }
+
+  Future<void> _approve(Map<String, dynamic> item) async {
+    final id = asInt(item['id']);
+    if (id <= 0) return;
+    final shipping = asDouble(asMap(item['order'])['shipping_cost']);
+    final goods = asDouble(item['seller_amount']);
+    final releaseTotal = goods + (shipping > 0 ? shipping : 0);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Release funds now?'),
+        content: Text(
+          'Move ${money.format(releaseTotal)} to this seller’s Available balance right away.\n\n'
+          'You can do this anytime — no 24-hour wait and no need for buyer confirm first.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+            child: const Text('Release now'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => busyId = id);
+    try {
+      final result = await context.read<AdminStore>().postJson('/admin/pending-funds/$id/release');
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Funds released to Available.'));
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => busyId = null);
+    }
+  }
+
+  Future<void> _reject(Map<String, dynamic> item) async {
+    final id = asInt(item['id']);
+    if (id <= 0) return;
+    final notes = await promptText(
+      context,
+      title: 'Reject — hold & dispute',
+      label: 'Why are you holding these funds?',
+      hint: 'At least 5 characters',
+    );
+    if (notes == null || !mounted) return;
+    if (notes.trim().length < 5) {
+      showSnack(context, 'Notes must be at least 5 characters.', error: true);
+      return;
+    }
+    setState(() => busyId = id);
+    try {
+      final result = await context.read<AdminStore>().postJson(
+        '/admin/pending-funds/$id/hold',
+        data: {'admin_notes': notes.trim()},
+      );
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Funds held. A dispute was opened.'));
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => busyId = null);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final tabs = [
+      ('pending', 'Pending (${counts['pending'] ?? 0})'),
+      ('held', 'Held (${counts['held'] ?? 0})'),
+      ('released', 'Released (${counts['released'] ?? 0})'),
+      ('all', 'All'),
+    ];
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Pending funds')),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FilterBar(
-            options: const ['pending', 'held', 'released'],
-            value: status,
-            onChanged: (value) {
-              status = value;
-              _load();
-            },
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Pending fund releases', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                SizedBox(height: 6),
+                Text(
+                  'Once a CityShop-secured order is processing, you can Release to the seller’s Available balance anytime — even under 24 hours, and without waiting for the buyer to confirm delivery.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+            child: Row(
+              children: [
+                for (final tab in tabs) ...[
+                  ChoiceChip(
+                    label: Text(tab.$2),
+                    selected: status == tab.$1,
+                    selectedColor: AppColors.blue,
+                    checkmarkColor: Colors.white,
+                    labelStyle: TextStyle(
+                      color: status == tab.$1 ? Colors.white : AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    onSelected: (_) {
+                      status = tab.$1;
+                      _load();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
           ),
           Expanded(
             child: loading
@@ -468,82 +592,192 @@ class _PendingFundsScreenState extends State<PendingFundsScreen> {
                     : RefreshIndicator(
                         onRefresh: _load,
                         child: items.isEmpty
-                            ? ListView(children: const [SizedBox(height: 80), EmptyState('No items.')])
+                            ? ListView(children: const [SizedBox(height: 80), EmptyState('No items in this view.')])
                             : ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                                padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
                                 itemCount: items.length,
-                                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                                itemBuilder: (context, index) {
-                                  final item = items[index];
-                                  final id = asInt(item['id']);
-                                  return Material(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: ListTile(
-                                      title: Text(str(item['product_name'])),
-                                      subtitle: Text(
-                                        '${money.format(asDouble(item['seller_amount']))} · ${str(item['seller_name'])}',
-                                      ),
-                                      trailing: StatusChip(str(item['funds_release_status'])),
-                                      onTap: status == 'pending'
-                                          ? () async {
-                                              final store = context.read<AdminStore>();
-                                              final choice = await showModalBottomSheet<String>(
-                                                context: context,
-                                                builder: (ctx) => SafeArea(
-                                                  child: Column(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      ListTile(
-                                                        title: const Text('Release to seller'),
-                                                        onTap: () => Navigator.pop(ctx, 'release'),
-                                                      ),
-                                                      ListTile(
-                                                        title: const Text('Hold / open dispute'),
-                                                        onTap: () => Navigator.pop(ctx, 'hold'),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              );
-                                              if (!context.mounted) return;
-                                              if (choice == 'release') {
-                                                try {
-                                                  final result = await store.postJson(
-                                                        '/admin/pending-funds/$id/release',
-                                                      );
-                                                  if (!context.mounted) return;
-                                                  showSnack(context, str(result['message']));
-                                                  await _load();
-                                                } on ApiException catch (e) {
-                                                  if (!context.mounted) return;
-                                                  showSnack(context, e.message, error: true);
-                                                }
-                                              } else if (choice == 'hold') {
-                                                final notes = await promptText(context, title: 'Hold funds', label: 'Notes');
-                                                if (notes == null || !context.mounted) return;
-                                                try {
-                                                  final result = await store.postJson(
-                                                        '/admin/pending-funds/$id/hold',
-                                                        data: {'admin_notes': notes},
-                                                      );
-                                                  if (!context.mounted) return;
-                                                  showSnack(context, str(result['message']));
-                                                  await _load();
-                                                } on ApiException catch (e) {
-                                                  if (!context.mounted) return;
-                                                  showSnack(context, e.message, error: true);
-                                                }
-                                              }
-                                            }
-                                          : null,
-                                    ),
-                                  );
-                                },
+                                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                                itemBuilder: (context, index) => _PendingFundCard(
+                                  item: items[index],
+                                  busy: busyId == asInt(items[index]['id']),
+                                  formatDate: _formatDate,
+                                  onApprove: () => _approve(items[index]),
+                                  onReject: () => _reject(items[index]),
+                                ),
                               ),
                       ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PendingFundCard extends StatelessWidget {
+  const _PendingFundCard({
+    required this.item,
+    required this.busy,
+    required this.formatDate,
+    required this.onApprove,
+    required this.onReject,
+  });
+
+  final Map<String, dynamic> item;
+  final bool busy;
+  final String Function(dynamic value) formatDate;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final order = asMap(item['order']);
+    final buyer = asMap(order['buyer']);
+    final seller = asMap(item['seller']);
+    final fundsStatus = str(item['funds_release_status'], 'pending');
+    final shipping = asDouble(order['shipping_cost']);
+    final goods = asDouble(item['seller_amount']);
+    final releaseTotal = goods + (shipping > 0 ? shipping : 0);
+    final canApprove = item['can_approve'] == true || fundsStatus == 'pending' || fundsStatus == 'held';
+    final canReject = item['can_reject'] == true || fundsStatus == 'pending';
+    final qty = asInt(item['quantity']);
+    final orderNumber = str(order['order_number'], str(item['order_number']));
+    final buyerName = str(buyer['name'], str(item['buyer_name'], '—'));
+    final buyerMobile = str(buyer['mobile']);
+    final sellerName = str(seller['name'], str(item['seller_name'], '—'));
+    final sellerMobile = str(seller['mobile']);
+    final stage = str(item['status_label'], str(item['status']).replaceAll('_', ' '));
+
+    Color badgeBg;
+    Color badgeFg;
+    switch (fundsStatus) {
+      case 'held':
+        badgeBg = const Color(0xFFFEE2E2);
+        badgeFg = const Color(0xFFB91C1C);
+      case 'released':
+        badgeBg = const Color(0xFFD1FAE5);
+        badgeFg = const Color(0xFF047857);
+      default:
+        badgeBg = const Color(0xFFFEF3C7);
+        badgeFg = const Color(0xFF92400E);
+    }
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    str(item['product_name'], 'Item'),
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(20)),
+                  child: Text(
+                    fundsStatus,
+                    style: TextStyle(color: badgeFg, fontWeight: FontWeight.w800, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Qty $qty · ${money.format(goods)}${shipping > 0 ? ' · Delivery ${money.format(shipping)}' : ''}',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            if (shipping > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Release total ${money.format(releaseTotal)} (goods + delivery fee)',
+                  style: const TextStyle(color: AppColors.emerald, fontWeight: FontWeight.w800),
+                ),
+              ),
+            const SizedBox(height: 6),
+            Text('Order stage: $stage', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            if (orderNumber.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Order $orderNumber · Updated ${formatDate(item['updated_at'])}',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+              ),
+            const SizedBox(height: 10),
+            Text(
+              'Buyer: $buyerName${buyerMobile.isEmpty ? '' : ' · $buyerMobile'}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Seller: $sellerName${sellerMobile.isEmpty ? '' : ' · $sellerMobile'}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            if (str(item['funds_release_notes']).isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(10)),
+                child: Text('Notes: ${str(item['funds_release_notes'])}'),
+              ),
+            if (fundsStatus == 'held')
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
+                child: Text(
+                  'Funds are held (often after a dispute). You can still Release anytime to Available.',
+                  style: TextStyle(color: Color(0xFF92400E), fontSize: 13),
+                ),
+              ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: asInt(order['id']) <= 0 ? null : () => context.push('/orders/${asInt(order['id'])}'),
+                child: const Text('View complete order'),
+              ),
+            ),
+            if (canApprove) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: busy ? null : onApprove,
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.emerald),
+                  child: busy
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text('Release now — ${money.format(releaseTotal)} to Available'),
+                ),
+              ),
+              if (canReject) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: busy ? null : onReject,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.danger,
+                      side: const BorderSide(color: Color(0xFFFECACA)),
+                    ),
+                    child: const Text('Hold & open dispute'),
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
       ),
     );
   }

@@ -277,6 +277,7 @@ class _IdPhotoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final resolved = ApiConfig.resolveMediaUrl(url);
+    final heroTag = 'kyc-photo-$label-$resolved';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -285,29 +286,29 @@ class _IdPhotoCard extends StatelessWidget {
         Material(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: resolved.isEmpty ? null : () => _openViewer(context, resolved, label),
-            borderRadius: BorderRadius.circular(16),
+            onTap: resolved.isEmpty ? null : () => openKycPhotoLightbox(context, url: resolved, label: label, heroTag: heroTag),
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppColors.border),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: AspectRatio(
-                  aspectRatio: portrait ? 0.78 : 1.586,
-                  child: resolved.isEmpty
-                      ? const ColoredBox(
-                          color: Color(0xFFF8FAFC),
-                          child: Center(
-                            child: Text('No photo', style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w600)),
-                          ),
-                        )
-                      : Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            CachedNetworkImage(
+              child: AspectRatio(
+                aspectRatio: portrait ? 0.78 : 1.586,
+                child: resolved.isEmpty
+                    ? const ColoredBox(
+                        color: Color(0xFFF8FAFC),
+                        child: Center(
+                          child: Text('No photo', style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+                        ),
+                      )
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Hero(
+                            tag: heroTag,
+                            child: CachedNetworkImage(
                               imageUrl: resolved,
                               fit: BoxFit.cover,
                               placeholder: (_, _) => const ColoredBox(
@@ -319,28 +320,36 @@ class _IdPhotoCard extends StatelessWidget {
                                 child: Center(child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted)),
                               ),
                             ),
-                            const Align(
-                              alignment: Alignment.bottomRight,
-                              child: Padding(
-                                padding: EdgeInsets.all(8),
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Color(0x99000000),
-                                    borderRadius: BorderRadius.all(Radius.circular(999)),
-                                  ),
-                                  child: Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    child: Text(
-                                      'Tap to zoom',
-                                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                          ),
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.72)],
+                                ),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.fromLTRB(12, 28, 12, 10),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.zoom_in, color: Colors.white, size: 18),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Tap to enlarge',
+                                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800),
                                     ),
-                                  ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                ),
+                          ),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -348,41 +357,143 @@ class _IdPhotoCard extends StatelessWidget {
       ],
     );
   }
-
-  void _openViewer(BuildContext context, String url, String label) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => _KycPhotoViewer(url: url, label: label),
-      ),
-    );
-  }
 }
 
-class _KycPhotoViewer extends StatelessWidget {
-  const _KycPhotoViewer({required this.url, required this.label});
+void openKycPhotoLightbox(
+  BuildContext context, {
+  required String url,
+  required String label,
+  required String heroTag,
+}) {
+  Navigator.of(context, rootNavigator: true).push(
+    PageRouteBuilder<void>(
+      opaque: false,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.92),
+      transitionDuration: const Duration(milliseconds: 220),
+      reverseTransitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return FadeTransition(
+          opacity: animation,
+          child: _KycPhotoLightbox(url: url, label: label, heroTag: heroTag),
+        );
+      },
+    ),
+  );
+}
+
+class _KycPhotoLightbox extends StatefulWidget {
+  const _KycPhotoLightbox({
+    required this.url,
+    required this.label,
+    required this.heroTag,
+  });
 
   final String url;
   final String label;
+  final String heroTag;
+
+  @override
+  State<_KycPhotoLightbox> createState() => _KycPhotoLightboxState();
+}
+
+class _KycPhotoLightboxState extends State<_KycPhotoLightbox> {
+  final _transform = TransformationController();
+  TapDownDetails? _doubleTapDetails;
+
+  @override
+  void dispose() {
+    _transform.dispose();
+    super.dispose();
+  }
+
+  void _handleDoubleTap() {
+    final position = _doubleTapDetails?.localPosition;
+    if (position == null) return;
+    final current = _transform.value.getMaxScaleOnAxis();
+    if (current > 1.05) {
+      _transform.value = Matrix4.identity();
+      return;
+    }
+    final zoomed = Matrix4.identity()
+      ..translateByDouble(-position.dx * 1.5, -position.dy * 1.5, 0, 1)
+      ..scaleByDouble(2.5, 2.5, 1, 1);
+    _transform.value = zoomed;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: Text(label),
-      ),
-      body: InteractiveViewer(
-        minScale: 1,
-        maxScale: 5,
-        child: Center(
-          child: CachedNetworkImage(
-            imageUrl: url,
-            fit: BoxFit.contain,
-            placeholder: (_, _) => const CircularProgressIndicator(color: Colors.white),
-            errorWidget: (_, _, _) => const Icon(Icons.broken_image_outlined, color: Colors.white70, size: 48),
-          ),
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).pop(),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            Positioned.fill(
+              child: GestureDetector(
+                onDoubleTapDown: (details) => _doubleTapDetails = details,
+                onDoubleTap: _handleDoubleTap,
+                child: InteractiveViewer(
+                  transformationController: _transform,
+                  minScale: 0.8,
+                  maxScale: 6,
+                  child: Center(
+                    child: Hero(
+                      tag: widget.heroTag,
+                      child: CachedNetworkImage(
+                        imageUrl: widget.url,
+                        fit: BoxFit.contain,
+                        width: MediaQuery.sizeOf(context).width,
+                        placeholder: (_, _) => const SizedBox(
+                          height: 120,
+                          child: Center(child: CircularProgressIndicator(color: Colors.white)),
+                        ),
+                        errorWidget: (_, _, _) => const Icon(Icons.broken_image_outlined, color: Colors.white70, size: 48),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              left: 8,
+              right: 8,
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: IconButton.styleFrom(backgroundColor: Colors.white12, foregroundColor: Colors.white),
+                    icon: const Icon(Icons.close),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: Text(
+                'Pinch or double-tap to zoom · Tap outside or ✕ to close',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
         ),
       ),
     );

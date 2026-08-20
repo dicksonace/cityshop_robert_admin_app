@@ -319,11 +319,28 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                     const SizedBox(height: 16),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Enable withdrawal fees'),
-                      subtitle: const Text('Used when auto Paystack is off.'),
+                      title: const Text('Charge bank withdrawal fees'),
+                      subtitle: const Text(
+                        'Must be ON for sellers to see GH₵10 / GH₵20 bank fees. Bands below are ignored while this is off.',
+                      ),
                       value: settings['enabled'] == true,
                       onChanged: (value) => setState(() => settings['enabled'] = value),
                     ),
+                    if (settings['enabled'] != true && appliesTo == 'bank')
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFDBA74)),
+                        ),
+                        child: const Text(
+                          'Bank fee bands are filled, but charging is OFF — sellers currently see “No fee”. Turn the switch on, then Save.',
+                          style: TextStyle(color: Color(0xFF9A3412), fontWeight: FontWeight.w600, height: 1.35),
+                        ),
+                      ),
                     TextField(
                       controller: _momo,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -337,7 +354,7 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                       initialValue: appliesTo,
                       decoration: const InputDecoration(
                         labelText: 'Apply bank fees to',
-                        helperText: 'This turns bank bands on or off. MoMo always uses the MoMo fee field.',
+                        helperText: '“Charge bank fee bands” also turns charging on when you save.',
                       ),
                       items: const [
                         DropdownMenuItem(value: 'bank', child: Text('Charge bank fee bands')),
@@ -346,7 +363,14 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                       ],
                       onChanged: (value) {
                         if (value == null) return;
-                        setState(() => appliesTo = value);
+                        setState(() {
+                          appliesTo = value;
+                          if (value == 'bank') {
+                            settings['enabled'] = true;
+                          } else if (value == 'none') {
+                            settings['enabled'] = false;
+                          }
+                        });
                       },
                     ),
                     const SizedBox(height: 16),
@@ -389,8 +413,9 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                       label: 'Save seller bank fees',
                       onPressed: () async {
                         try {
+                          final chargeBank = appliesTo == 'bank';
                           final result = await context.read<AdminStore>().postJson('/admin/settings/withdrawal', data: {
-                            'enabled': settings['enabled'] == true,
+                            'enabled': chargeBank ? true : settings['enabled'] == true,
                             'amount': _amount.text,
                             'momo_amount': _momo.text,
                             'applies_to': appliesTo,
@@ -407,7 +432,10 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                             'auto_paystack_fee_percent': _autoPercent.text,
                           });
                           if (!context.mounted) return;
-                          showSnack(context, str(result['message'], 'Saved.'));
+                          if (chargeBank) {
+                            setState(() => settings['enabled'] = true);
+                          }
+                          showSnack(context, str(result['message'], 'Saved. Sellers will see bank fees on the next withdraw refresh.'));
                         } on ApiException catch (e) {
                           if (!context.mounted) return;
                           showSnack(context, e.message, error: true);
