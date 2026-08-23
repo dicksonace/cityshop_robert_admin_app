@@ -244,15 +244,34 @@ class DisputesScreen extends StatefulWidget {
 }
 
 class _DisputesScreenState extends State<DisputesScreen> {
+  static const _tabs = [
+    ('open', 'New requests'),
+    ('under_review', 'Under review'),
+    ('resolved_buyer', 'Refunded'),
+    ('resolved_seller', 'Declined'),
+    ('cancelled', 'Cancelled'),
+    ('all', 'All'),
+  ];
+
   String status = 'open';
   bool loading = true;
+  bool busy = false;
   String? error;
   List<Map<String, dynamic>> disputes = [];
+  int? resolvingId;
+  String resolution = 'resolved_buyer';
+  final _notes = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _notes.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -261,7 +280,10 @@ class _DisputesScreenState extends State<DisputesScreen> {
       error = null;
     });
     try {
-      final data = await context.read<AdminStore>().getJson('/admin/disputes', query: {'status': status});
+      final data = await context.read<AdminStore>().getJson(
+            '/admin/disputes',
+            query: {'status': status, 'per_page': 50},
+          );
       if (!mounted) return;
       setState(() {
         disputes = asMaps(data['data']);
@@ -276,43 +298,57 @@ class _DisputesScreenState extends State<DisputesScreen> {
     }
   }
 
-  Future<void> _resolve(int id) async {
-    final notes = await promptText(context, title: 'Resolution notes', label: 'Notes');
-    if (notes == null || !mounted) return;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('Refund buyer'),
-              onTap: () => Navigator.pop(ctx, 'resolved_buyer'),
-            ),
-            ListTile(
-              title: const Text('Pay seller'),
-              onTap: () => Navigator.pop(ctx, 'resolved_seller'),
-            ),
-            ListTile(
-              title: const Text('Close without payout'),
-              onTap: () => Navigator.pop(ctx, 'closed'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
+  void _startResolve(int id) {
+    setState(() {
+      resolvingId = id;
+      resolution = 'resolved_buyer';
+      _notes.clear();
+    });
+  }
+
+  void _cancelResolve() {
+    setState(() {
+      resolvingId = null;
+      _notes.clear();
+    });
+  }
+
+  Future<void> _markReview(int id) async {
+    setState(() => busy = true);
     try {
-      final result = await context.read<AdminStore>().postJson(
-            '/admin/disputes/$id/resolve',
-            data: {'resolution': picked, 'resolution_notes': notes},
-          );
+      final result = await context.read<AdminStore>().postJson('/admin/disputes/$id/review');
       if (!mounted) return;
-      showSnack(context, str(result['message'], 'Resolved.'));
+      showSnack(context, str(result['message'], 'Marked under review.'));
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
       showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _confirmResolve(int id) async {
+    final notes = _notes.text.trim();
+    if (notes.isEmpty) {
+      showSnack(context, 'Admin notes are required.', error: true);
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final result = await context.read<AdminStore>().postJson(
+            '/admin/disputes/$id/resolve',
+            data: {'resolution': resolution, 'resolution_notes': notes},
+          );
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Refund request resolved.'));
+      _cancelResolve();
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -320,87 +356,329 @@ class _DisputesScreenState extends State<DisputesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Refunds')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/more');
+            }
+          },
+        ),
+        title: const Text('Refund requests'),
+      ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FilterBar(
-            options: const ['open', 'under_review', 'resolved_buyer', 'resolved_seller', 'closed', 'all'],
-            value: status,
-            onChanged: (value) {
-              status = value;
-              _load();
-            },
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              'Review buyer refund requests before approving or declining. Sellers are notified automatically.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+            ),
           ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+            child: Row(
+              children: [
+                for (final tab in _tabs) ...[
+                  ChoiceChip(
+                    label: Text(tab.$2),
+                    selected: status == tab.$1,
+                    selectedColor: AppColors.blue,
+                    checkmarkColor: Colors.white,
+                    labelStyle: TextStyle(
+                      color: status == tab.$1 ? Colors.white : AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    onSelected: (_) {
+                      setState(() {
+                        status = tab.$1;
+                        resolvingId = null;
+                      });
+                      _load();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
+          if (busy) const LinearProgressIndicator(minHeight: 2),
           Expanded(
             child: loading
-                ? const FullPageLoader()
+                ? const FullPageLoader(label: 'Loading refunds…')
                 : error != null
                     ? ErrorRetry(message: error!, onRetry: _load)
                     : RefreshIndicator(
                         onRefresh: _load,
                         child: disputes.isEmpty
-                            ? ListView(children: const [SizedBox(height: 80), EmptyState('No refunds.')])
+                            ? ListView(children: const [SizedBox(height: 80), EmptyState('No refund requests found.')])
                             : ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                                padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
                                 itemCount: disputes.length,
-                                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                                itemBuilder: (context, index) {
-                                  final dispute = disputes[index];
-                                  final id = asInt(dispute['id']);
-                                  return Material(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: ListTile(
-                                      title: Text(str(dispute['product_name'], str(dispute['order_number']))),
-                                      subtitle: Text(
-                                        '${str(dispute['buyer_name'])} vs ${str(dispute['seller_name'])}\n${str(dispute['reason'])}',
-                                      ),
-                                      isThreeLine: true,
-                                      trailing: StatusChip(str(dispute['status'])),
-                                      onTap: () async {
-                                        final store = context.read<AdminStore>();
-                                        final choice = await showModalBottomSheet<String>(
-                                          context: context,
-                                          builder: (ctx) => SafeArea(
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                ListTile(
-                                                  title: const Text('Mark under review'),
-                                                  onTap: () => Navigator.pop(ctx, 'review'),
-                                                ),
-                                                ListTile(
-                                                  title: const Text('Resolve'),
-                                                  onTap: () => Navigator.pop(ctx, 'resolve'),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                        if (!context.mounted) return;
-                                        if (choice == 'review') {
-                                          try {
-                                            final result = await store.postJson(
-                                                  '/admin/disputes/$id/review',
-                                                );
-                                            if (!context.mounted) return;
-                                            showSnack(context, str(result['message'], 'Updated.'));
-                                            await _load();
-                                          } on ApiException catch (e) {
-                                            if (!context.mounted) return;
-                                            showSnack(context, e.message, error: true);
-                                          }
-                                        } else if (choice == 'resolve') {
-                                          await _resolve(id);
-                                        }
-                                      },
-                                    ),
-                                  );
-                                },
+                                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                                itemBuilder: (context, index) => _RefundRequestCard(
+                                  dispute: disputes[index],
+                                  resolving: resolvingId == asInt(disputes[index]['id']),
+                                  busy: busy,
+                                  resolution: resolution,
+                                  notes: _notes,
+                                  onResolutionChanged: (value) => setState(() => resolution = value),
+                                  onMarkReview: () => _markReview(asInt(disputes[index]['id'])),
+                                  onStartResolve: () => _startResolve(asInt(disputes[index]['id'])),
+                                  onCancelResolve: _cancelResolve,
+                                  onConfirmResolve: () => _confirmResolve(asInt(disputes[index]['id'])),
+                                  onViewOrder: () {
+                                    final orderId = asInt(disputes[index]['order_id']);
+                                    if (orderId > 0) context.push('/orders/$orderId');
+                                  },
+                                ),
                               ),
                       ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _RefundRequestCard extends StatelessWidget {
+  const _RefundRequestCard({
+    required this.dispute,
+    required this.resolving,
+    required this.busy,
+    required this.resolution,
+    required this.notes,
+    required this.onResolutionChanged,
+    required this.onMarkReview,
+    required this.onStartResolve,
+    required this.onCancelResolve,
+    required this.onConfirmResolve,
+    required this.onViewOrder,
+  });
+
+  final Map<String, dynamic> dispute;
+  final bool resolving;
+  final bool busy;
+  final String resolution;
+  final TextEditingController notes;
+  final ValueChanged<String> onResolutionChanged;
+  final VoidCallback onMarkReview;
+  final VoidCallback onStartResolve;
+  final VoidCallback onCancelResolve;
+  final VoidCallback onConfirmResolve;
+  final VoidCallback onViewOrder;
+
+  Color _statusBg(String status) {
+    switch (status) {
+      case 'open':
+        return const Color(0xFFFEF3C7);
+      case 'under_review':
+        return const Color(0xFFDBEAFE);
+      case 'resolved_buyer':
+        return const Color(0xFFD1FAE5);
+      case 'resolved_seller':
+        return const Color(0xFFFEE2E2);
+      case 'cancelled':
+        return const Color(0xFFF3F4F6);
+      default:
+        return AppColors.ringOrange;
+    }
+  }
+
+  Color _statusFg(String status) {
+    switch (status) {
+      case 'open':
+        return const Color(0xFF92400E);
+      case 'under_review':
+        return const Color(0xFF1D4ED8);
+      case 'resolved_buyer':
+        return const Color(0xFF047857);
+      case 'resolved_seller':
+        return const Color(0xFFB91C1C);
+      case 'cancelled':
+        return AppColors.textSecondary;
+      default:
+        return AppColors.accent;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = str(dispute['status']);
+    final statusLabel = str(dispute['status_label'], status.replaceAll('_', ' '));
+    final product = str(dispute['product_name'], 'Item');
+    final orderNumber = str(dispute['order_number']);
+    final reason = str(dispute['reason_label'], str(dispute['reason']).replaceAll('_', ' '));
+    final description = str(dispute['description']);
+    final buyer = str(dispute['buyer_name']);
+    final seller = str(dispute['seller_name']);
+    final buyerMobile = str(dispute['buyer_mobile']);
+    final sellerMobile = str(dispute['seller_mobile']);
+    final fundsStatus = str(dispute['funds_release_status']);
+    final refundAmount = asDouble(dispute['refund_amount']);
+    final resolutionNotes = str(dispute['resolution_notes']);
+    final isOpen = dispute['is_open'] == true || status == 'open' || status == 'under_review';
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(product, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _statusBg(status),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(color: _statusFg(status), fontWeight: FontWeight.w800, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            if (orderNumber.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Order $orderNumber${reason.isNotEmpty ? ' · $reason' : ''}',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+              ),
+            if (refundAmount > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Refund amount ${money.format(refundAmount)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+              ),
+            if (fundsStatus.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Admin held pending fund release: $fundsStatus',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+              ),
+            if (description.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(description, style: const TextStyle(fontSize: 14, height: 1.35)),
+              ),
+            const SizedBox(height: 8),
+            Text(
+              'Buyer: $buyer${buyerMobile.isEmpty ? '' : ' · $buyerMobile'}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Seller: $seller${sellerMobile.isEmpty ? '' : ' · $sellerMobile'}',
+              style: const TextStyle(fontSize: 13),
+            ),
+            if (resolutionNotes.isNotEmpty && !isOpen)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text('Admin notes: $resolutionNotes'),
+              ),
+            if (asInt(dispute['order_id']) > 0) ...[
+              const SizedBox(height: 10),
+              TextButton(onPressed: onViewOrder, child: const Text('View order')),
+            ],
+            if (status == 'open') ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(onPressed: busy ? null : onMarkReview, child: const Text('Mark under review')),
+                  ElevatedButton(onPressed: busy ? null : onStartResolve, child: const Text('Approve or decline')),
+                ],
+              ),
+            ],
+            if (status == 'under_review' && !resolving) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: busy ? null : onStartResolve,
+                  child: const Text('Approve or decline refund'),
+                ),
+              ),
+            ],
+            if (resolving) ...[
+              const Divider(height: 24),
+              DropdownButtonFormField<String>(
+                value: resolution,
+                decoration: const InputDecoration(labelText: 'Decision'),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'resolved_buyer',
+                    child: Text('Approve refund (return money to buyer)'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'resolved_seller',
+                    child: Text('Decline refund (favor seller)'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'closed',
+                    child: Text('Close without action'),
+                  ),
+                ],
+                onChanged: busy ? null : (value) => onResolutionChanged(value ?? 'resolved_buyer'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: notes,
+                maxLines: 3,
+                enabled: !busy,
+                decoration: const InputDecoration(
+                  labelText: 'Admin notes for buyer and seller',
+                  hintText: 'Explain your decision…',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: busy ? null : onConfirmResolve,
+                      child: busy
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text('Confirm decision'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(onPressed: busy ? null : onCancelResolve, child: const Text('Cancel')),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
