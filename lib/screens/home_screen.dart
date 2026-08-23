@@ -16,6 +16,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool loading = true;
+  bool refreshing = false;
   String? error;
   Map<String, dynamic> stats = {};
   List<Map<String, dynamic>> pendingSellers = [];
@@ -27,11 +28,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
+  Future<void> _load({bool fromRefresh = false}) async {
+    if (fromRefresh) {
+      setState(() {
+        refreshing = true;
+        error = null;
+      });
+    } else {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
       final data = await context.read<AdminStore>().getJson('/admin/dashboard');
       if (!mounted) return;
@@ -41,15 +49,19 @@ class _HomeScreenState extends State<HomeScreen> {
         pendingSellers = asMaps(queues['sellers']);
         pendingWithdrawals = asMaps(queues['withdrawals']);
         loading = false;
+        refreshing = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         error = e.message;
         loading = false;
+        refreshing = false;
       });
     }
   }
+
+  Future<void> _refresh() => _load(fromRefresh: true);
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +72,17 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Admin home'),
         actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(
+            tooltip: 'Refresh dashboard',
+            onPressed: refreshing ? null : _refresh,
+            icon: refreshing
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  )
+                : const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: loading
@@ -68,10 +90,12 @@ class _HomeScreenState extends State<HomeScreen> {
           : error != null
               ? ErrorRetry(message: error!, onRetry: _load)
               : RefreshIndicator(
-                  onRefresh: _load,
+                  onRefresh: _refresh,
                   child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                     children: [
+                      if (refreshing) const LinearProgressIndicator(minHeight: 2),
                       Text(
                         'Hi ${user?.name ?? 'Admin'}',
                         style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
