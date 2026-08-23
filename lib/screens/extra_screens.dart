@@ -171,7 +171,7 @@ class BuyersScreen extends StatelessWidget {
         child: ListTile(
           title: Text(str(item['name'])),
           subtitle: Text('${str(item['mobile'])} · ${money.format(asDouble(item['available_balance']))}'),
-          trailing: item['is_blocked'] == true ? const StatusChip('blocked') : const Icon(Icons.chevron_right),
+          trailing: item['is_blocked'] == true ? const StatusChip('blacklisted', color: AppColors.danger) : const Icon(Icons.chevron_right),
           onTap: () => context.push('/buyers/${item['id']}'),
         ),
       ),
@@ -258,7 +258,7 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
   }
 
   Future<void> _block() async {
-    final reason = await promptText(context, title: 'Block buyer', label: 'Reason');
+    final reason = await promptText(context, title: 'Blacklist for security', label: 'Reason');
     if (reason == null || !mounted) return;
     await _run(() => context.read<AdminStore>().postJson('/admin/buyers/${widget.id}/block', data: {'reason': reason}));
   }
@@ -268,7 +268,7 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
   }
 
   Future<void> _delete() async {
-    final reason = await promptText(context, title: 'Delete buyer', label: 'Reason');
+    final reason = await promptText(context, title: 'Delete account', label: 'Reason');
     if (reason == null || !mounted) return;
     final confirm = await promptText(context, title: 'Type buyer email', label: 'Email', hint: str(buyer['email']));
     if (confirm == null || !mounted) return;
@@ -313,7 +313,7 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          'Blocked: ${str(buyer['block_reason'], 'Account blocked by admin')}',
+                          'Blacklisted: ${str(buyer['block_reason'], 'Restricted for security')}',
                           style: const TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -324,20 +324,20 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                     const SizedBox(height: 8),
                     Text('Wallet ${money.format(asDouble(buyer['available_balance']))} · ${buyer['orders_count'] ?? 0} orders'),
                     const SizedBox(height: 20),
-                    const Text('Account', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const Text('Security', style: TextStyle(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 4),
                     const Text(
-                      'Block stops sign-in. Delete removes the account and frees email/phone for a new registration.',
+                      'Blacklist locks the account — no login and no re-register with same email/phone. Delete removes the account and lets them sign up again.',
                       style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
                     ),
                     const SizedBox(height: 12),
                     if (blocked)
-                      PrimaryButton(label: 'Unblock buyer', loading: busy, onPressed: busy ? null : _unblock)
+                      PrimaryButton(label: 'Remove blacklist', loading: busy, onPressed: busy ? null : _unblock)
                     else
                       OutlinedButton(
                         onPressed: busy ? null : _block,
                         style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
-                        child: const Text('Block buyer'),
+                        child: const Text('Blacklist user'),
                       ),
                     const SizedBox(height: 8),
                     OutlinedButton(
@@ -346,7 +346,7 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                         foregroundColor: AppColors.danger,
                         side: const BorderSide(color: Color(0xFFFECACA)),
                       ),
-                      child: const Text('Delete buyer account'),
+                      child: const Text('Delete account (allow re-register)'),
                     ),
                   ],
                 ),
