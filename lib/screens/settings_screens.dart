@@ -16,9 +16,13 @@ class SmsSettingsScreen extends StatefulWidget {
 
 class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
   bool loading = true;
+  bool saving = false;
+  bool testing = false;
   String? error;
   Map<String, dynamic> settings = {};
+  List<Map<String, dynamic>> providers = [];
   final _alert1 = TextEditingController();
+  final _testMobile = TextEditingController();
 
   @override
   void initState() {
@@ -29,14 +33,20 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
   @override
   void dispose() {
     _alert1.dispose();
+    _testMobile.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
       final data = await context.read<AdminStore>().getJson('/admin/settings/sms');
       if (!mounted) return;
       settings = asMap(data['settings']);
+      providers = asMaps(data['providers']);
       _alert1.text = str(settings['alert_mobile_1']);
       setState(() => loading = false);
     } on ApiException catch (e) {
@@ -48,8 +58,57 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
     }
   }
 
+  String get _driver => str(settings['driver'], 'formula_dc');
+  bool get _failover => settings['failover'] == true;
+
+  Future<void> _save() async {
+    setState(() => saving = true);
+    try {
+      final result = await context.read<AdminStore>().postJson('/admin/settings/sms', data: {
+        'driver': _driver,
+        'failover': _failover,
+        'alert_mobile_1': _alert1.text.trim(),
+        'alert_mobile_2': settings['alert_mobile_2'] ?? '',
+        'alert_mobile_3': settings['alert_mobile_3'] ?? '',
+        'alert_mobile_4': settings['alert_mobile_4'] ?? '',
+      });
+      if (!mounted) return;
+      final saved = asMap(result['settings']);
+      if (saved.isNotEmpty) settings = {...settings, ...saved};
+      showSnack(context, str(result['message'], 'Saved.'));
+      setState(() => saving = false);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      showSnack(context, e.message, error: true);
+    }
+  }
+
+  Future<void> _test() async {
+    final mobile = _testMobile.text.trim();
+    if (mobile.isEmpty) {
+      showSnack(context, 'Enter a phone number to test.', error: true);
+      return;
+    }
+    setState(() => testing = true);
+    try {
+      final result = await context.read<AdminStore>().postJson('/admin/settings/sms/test', data: {
+        'mobile': mobile,
+      });
+      if (!mounted) return;
+      setState(() => testing = false);
+      showSnack(context, str(result['message'], 'Test sent.'));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => testing = false);
+      showSnack(context, e.message, error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final activeLabel = _driver == 'txtconnect' ? 'TxtConnect' : 'Formula DC';
+
     return Scaffold(
       appBar: AppBar(title: const Text('SMS settings')),
       body: loading
@@ -59,41 +118,67 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    Text('Active now: $activeLabel', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'If failover is ON and TxtConnect fails (sender ID not approved yet), Formula DC still sends the SMS. Turn failover OFF to test TxtConnect alone.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      initialValue: str(settings['driver'], 'formula_dc'),
+                      value: _driver,
                       items: const [
                         DropdownMenuItem(value: 'formula_dc', child: Text('Formula DC')),
                         DropdownMenuItem(value: 'txtconnect', child: Text('TxtConnect')),
                       ],
-                      onChanged: (value) => settings['driver'] = value,
+                      onChanged: (value) => setState(() => settings['driver'] = value),
                       decoration: const InputDecoration(labelText: 'Provider'),
                     ),
+                    if (providers.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...providers.map((p) {
+                        final id = str(p['id']);
+                        final configured = p['configured'] == true;
+                        return Text(
+                          '${str(p['label'], id)}: ${configured ? 'API key saved' : 'API key missing'}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: configured ? AppColors.textSecondary : AppColors.danger,
+                          ),
+                        );
+                      }),
+                    ],
                     SwitchListTile(
-                      title: const Text('Failover'),
-                      value: settings['failover'] == true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Failover to the other provider'),
+                      subtitle: const Text('When ON, Formula DC can still send if TxtConnect fails.'),
+                      value: _failover,
                       onChanged: (value) => setState(() => settings['failover'] = value),
                     ),
                     TextField(controller: _alert1, decoration: const InputDecoration(labelText: 'Alert mobile 1')),
                     const SizedBox(height: 16),
                     PrimaryButton(
-                      label: 'Save',
-                      onPressed: () async {
-                        try {
-                          final result = await context.read<AdminStore>().postJson('/admin/settings/sms', data: {
-                            'driver': settings['driver'] ?? 'formula_dc',
-                            'failover': settings['failover'] == true,
-                            'alert_mobile_1': _alert1.text.trim(),
-                            'alert_mobile_2': settings['alert_mobile_2'] ?? '',
-                            'alert_mobile_3': settings['alert_mobile_3'] ?? '',
-                            'alert_mobile_4': settings['alert_mobile_4'] ?? '',
-                          });
-                          if (!context.mounted) return;
-                          showSnack(context, str(result['message'], 'Saved.'));
-                        } on ApiException catch (e) {
-                          if (!context.mounted) return;
-                          showSnack(context, e.message, error: true);
-                        }
-                      },
+                      label: 'Save SMS platform',
+                      loading: saving,
+                      onPressed: saving ? null : _save,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text('Send test SMS', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'This reports which provider actually delivered the text.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _testMobile,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Test phone (0XXXXXXXXX)'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      onPressed: testing ? null : _test,
+                      child: Text(testing ? 'Sending…' : 'Send test SMS'),
                     ),
                   ],
                 ),
