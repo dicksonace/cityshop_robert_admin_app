@@ -171,7 +171,7 @@ class BuyersScreen extends StatelessWidget {
         child: ListTile(
           title: Text(str(item['name'])),
           subtitle: Text('${str(item['mobile'])} · ${money.format(asDouble(item['available_balance']))}'),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: item['is_blocked'] == true ? const StatusChip('blocked') : const Icon(Icons.chevron_right),
           onTap: () => context.push('/buyers/${item['id']}'),
         ),
       ),
@@ -189,6 +189,7 @@ class BuyerDetailScreen extends StatefulWidget {
 
 class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
   bool loading = true;
+  bool busy = false;
   String? error;
   Map<String, dynamic> buyer = {};
 
@@ -237,11 +238,63 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
     }
   }
 
+  Future<void> _run(Future<Map<String, dynamic>> Function() action) async {
+    setState(() => busy = true);
+    try {
+      final result = await action();
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Done.'));
+      if (result.containsKey('data')) {
+        setState(() => buyer = asMap(result['data']));
+      } else {
+        await _load();
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _block() async {
+    final reason = await promptText(context, title: 'Block buyer', label: 'Reason');
+    if (reason == null || !mounted) return;
+    await _run(() => context.read<AdminStore>().postJson('/admin/buyers/${widget.id}/block', data: {'reason': reason}));
+  }
+
+  Future<void> _unblock() async {
+    await _run(() => context.read<AdminStore>().postJson('/admin/buyers/${widget.id}/unblock'));
+  }
+
+  Future<void> _delete() async {
+    final reason = await promptText(context, title: 'Delete buyer', label: 'Reason');
+    if (reason == null || !mounted) return;
+    final confirm = await promptText(context, title: 'Type buyer email', label: 'Email', hint: str(buyer['email']));
+    if (confirm == null || !mounted) return;
+    setState(() => busy = true);
+    try {
+      final result = await context.read<AdminStore>().deleteJson(
+            '/admin/buyers/${widget.id}',
+            data: {'reason': reason, 'confirm_email': confirm},
+          );
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Deleted.'));
+      context.pop();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+      setState(() => busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final blocked = buyer['is_blocked'] == true;
+
     return Scaffold(
       appBar: AppBar(title: Text(str(buyer['name'], 'Buyer')), actions: [
-        IconButton(onPressed: loading ? null : _edit, icon: const Icon(Icons.edit_outlined)),
+        IconButton(onPressed: loading || busy ? null : _edit, icon: const Icon(Icons.edit_outlined)),
       ]),
       body: loading
           ? const FullPageLoader()
@@ -250,10 +303,51 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    if (busy) const LinearProgressIndicator(minHeight: 2),
+                    if (blocked) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEE2E2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Blocked: ${str(buyer['block_reason'], 'Account blocked by admin')}',
+                          style: const TextStyle(color: Color(0xFFB91C1C), fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     Text(str(buyer['email'])),
                     Text(str(buyer['mobile'])),
                     const SizedBox(height: 8),
                     Text('Wallet ${money.format(asDouble(buyer['available_balance']))} · ${buyer['orders_count'] ?? 0} orders'),
+                    const SizedBox(height: 20),
+                    const Text('Account', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Block stops sign-in. Delete removes the account and frees email/phone for a new registration.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    if (blocked)
+                      PrimaryButton(label: 'Unblock buyer', loading: busy, onPressed: busy ? null : _unblock)
+                    else
+                      OutlinedButton(
+                        onPressed: busy ? null : _block,
+                        style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                        child: const Text('Block buyer'),
+                      ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: busy ? null : _delete,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.danger,
+                        side: const BorderSide(color: Color(0xFFFECACA)),
+                      ),
+                      child: const Text('Delete buyer account'),
+                    ),
                   ],
                 ),
     );
