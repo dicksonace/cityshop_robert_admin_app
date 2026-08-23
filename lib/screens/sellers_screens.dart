@@ -1,8 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../api/api_config.dart';
 import '../store/admin_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -388,6 +390,8 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                       onPressed: busy ? null : _saveProfile,
                     ),
                     const SizedBox(height: 16),
+                    _SellerDocumentsSection(seller: seller),
+                    const SizedBox(height: 16),
                     if (status == 'pending') ...[
                       PrimaryButton(
                         label: 'Approve seller',
@@ -542,6 +546,115 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                     ],
                   ],
                 ),
+    );
+  }
+}
+
+class _SellerDocumentsSection extends StatelessWidget {
+  const _SellerDocumentsSection({required this.seller});
+
+  final Map<String, dynamic> seller;
+
+  @override
+  Widget build(BuildContext context) {
+    final docs = <(String, String?)>[
+      ('Shop Photo', seller['shop_photo'] as String?),
+      ('ID Front', seller['id_card_front'] as String?),
+      ('ID Back', seller['id_card_back'] as String?),
+      ('Form A', seller['form_a'] as String?),
+      ('Form B', seller['form_b'] as String?),
+      ('Certificate', seller['business_certificate'] as String?),
+      ('Selfie with ID', seller['selfie_with_id'] as String?),
+    ].where((doc) => str(doc.$2).isNotEmpty).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Documents', style: TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        const Text(
+          'Tap a photo to view full size for verification.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: 10),
+        if (docs.isEmpty)
+          const Text(
+            'No documents uploaded yet.',
+            style: TextStyle(color: AppColors.textSecondary),
+          )
+        else
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final doc in docs)
+                _DocumentTile(label: doc.$1, url: doc.$2!),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _DocumentTile extends StatelessWidget {
+  const _DocumentTile({required this.label, required this.url});
+
+  final String label;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => _openFullScreen(context),
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 104,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NetworkThumb(url, size: 104),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.blue,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openFullScreen(BuildContext context) {
+    final resolved = ApiConfig.resolveMediaUrl(url);
+    if (resolved.isEmpty) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            title: Text(label),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: CachedNetworkImage(
+                imageUrl: resolved,
+                fit: BoxFit.contain,
+                placeholder: (_, _) => const CircularProgressIndicator(color: Colors.white),
+                errorWidget: (_, _, _) => const Icon(Icons.broken_image_outlined, color: Colors.white70, size: 48),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
