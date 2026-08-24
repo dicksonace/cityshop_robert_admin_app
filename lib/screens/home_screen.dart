@@ -137,6 +137,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _QuickAction(
+                              label: 'Unprocessed',
+                              count: stats['unprocessed_orders'],
+                              icon: Icons.schedule_outlined,
+                              onTap: () => context.go('/orders?tab=unprocessed'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _QuickAction(
+                              label: 'Awaiting confirm',
+                              count: stats['awaiting_confirmation'],
+                              icon: Icons.local_shipping_outlined,
+                              onTap: () => context.go('/orders?tab=awaiting'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
                       Material(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
@@ -175,8 +197,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           _StatTile('Open refunds', stats['open_disputes'], '/disputes'),
                           _StatTile('Transfer RMB', stats['pending_rmb'], '/china-transfers'),
                           _StatTile('Pending funds', stats['pending_funds'], '/pending-funds'),
-                          _StatTile('Unprocessed', stats['unprocessed_orders'], '/orders'),
-                          _StatTile('Awaiting confirm', stats['awaiting_confirmation'], '/orders'),
+                          _StatTile('Unprocessed', stats['unprocessed_orders'], '/orders?tab=unprocessed'),
+                          _StatTile('Awaiting confirm', stats['awaiting_confirmation'], '/orders?tab=awaiting'),
                           _StatTile('Paid revenue', money.format(asDouble(stats['paid_revenue'])), null),
                         ],
                       ),
@@ -243,10 +265,14 @@ class _StatTile extends StatelessWidget {
         onTap: route == null
             ? null
             : () {
-                if (route!.startsWith('/money') || route == '/sellers' || route == '/orders') {
-                  context.go(route!);
+                final path = route!;
+                if (path.startsWith('/money') ||
+                    path == '/sellers' ||
+                    path == '/orders' ||
+                    path.startsWith('/orders?')) {
+                  context.go(path);
                 } else {
-                  context.push(route!);
+                  context.push(path);
                 }
               },
         child: Padding(

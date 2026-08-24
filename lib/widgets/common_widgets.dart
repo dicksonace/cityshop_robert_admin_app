@@ -281,9 +281,10 @@ Future<String?> promptText(
   String label = 'Reason',
   String action = 'Submit',
   String? hint,
+  String? initial,
   TextInputType keyboardType = TextInputType.text,
 }) async {
-  final ctrl = TextEditingController();
+  final ctrl = TextEditingController(text: initial ?? '');
   final ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -325,10 +326,9 @@ Future<String?> promptText(
       );
     },
   );
-  final text = ctrl.text.trim();
+  final value = ctrl.text.trim();
   ctrl.dispose();
-  if (ok != true || text.isEmpty) return null;
-  return text;
+  return ok == true ? value : null;
 }
 
 Future<bool> confirmAction(

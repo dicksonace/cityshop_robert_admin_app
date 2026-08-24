@@ -38,7 +38,12 @@ GoRouter createRouter(AdminStore store) {
         routes: [
           GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
           GoRoute(path: '/sellers', builder: (_, _) => const SellersScreen()),
-          GoRoute(path: '/orders', builder: (_, _) => const OrdersScreen()),
+          GoRoute(
+            path: '/orders',
+            builder: (_, state) => OrdersScreen(
+              initialTab: state.uri.queryParameters['tab'] ?? 'all',
+            ),
+          ),
           GoRoute(
             path: '/money',
             builder: (_, state) => MoneyScreen(

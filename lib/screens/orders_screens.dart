@@ -9,7 +9,9 @@ import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({super.key});
+  const OrdersScreen({super.key, this.initialTab = 'all'});
+
+  final String initialTab;
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -20,15 +22,32 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
   bool loading = true;
   String? error;
   List<Map<String, dynamic>> items = [];
+  int unprocessedCount = 0;
+
+  static int _tabIndex(String tab) => switch (tab) {
+        'unprocessed' => 1,
+        'awaiting' || 'awaiting-confirmation' => 2,
+        'direct' || 'awaiting-direct' => 3,
+        'cancelled' || 'cancellations' => 4,
+        _ => 0,
+      };
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 5, vsync: this);
+    _tabs = TabController(length: 5, vsync: this, initialIndex: _tabIndex(widget.initialTab));
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging) _load();
     });
     _load();
+  }
+
+  @override
+  void didUpdateWidget(OrdersScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTab == widget.initialTab) return;
+    final index = _tabIndex(widget.initialTab);
+    if (_tabs.index != index) _tabs.animateTo(index);
   }
 
   @override
@@ -55,6 +74,12 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
       if (!mounted) return;
       setState(() {
         items = asMaps(data['data']);
+        if (_tabs.index == 1) {
+          unprocessedCount = asInt(data['count']);
+          if (unprocessedCount <= 0) {
+            unprocessedCount = asInt(asMap(data['meta'])['total']);
+          }
+        }
         loading = false;
       });
     } on ApiException catch (e) {
@@ -67,7 +92,12 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
   }
 
   Future<void> _cancel(int id) async {
-    final reason = await promptText(context, title: 'Cancel unprocessed order', label: 'Reason');
+    final reason = await promptText(
+      context,
+      title: 'Cancel unprocessed order',
+      label: 'Reason',
+      initial: 'Admin cancelled: order does not look like it will go through.',
+    );
     if (reason == null || !mounted) return;
     try {
       final data = await context.read<AdminStore>().postJson(
@@ -101,6 +131,15 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
     }
   }
 
+  String _formatWait(dynamic hoursRaw) {
+    final hours = asInt(hoursRaw);
+    if (hours <= 0) return '—';
+    if (hours < 48) return '${hours}h';
+    final days = hours ~/ 24;
+    final rem = hours % 24;
+    return rem > 0 ? '${days}d ${rem}h' : '${days}d';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -126,13 +165,22 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
               : RefreshIndicator(
                   onRefresh: _load,
                   child: items.isEmpty
-                      ? ListView(children: const [SizedBox(height: 80), EmptyState('No orders here.')])
+                      ? ListView(
+                          children: [
+                            if (_tabs.index == 1) const _UnprocessedBanner(count: 0),
+                            const SizedBox(height: 80),
+                            const EmptyState('No orders here.'),
+                          ],
+                        )
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-                          itemCount: items.length,
+                          itemCount: items.length + (_tabs.index == 1 ? 1 : 0),
                           separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, index) {
-                            final item = items[index];
+                            if (_tabs.index == 1 && index == 0) {
+                              return _UnprocessedBanner(count: unprocessedCount);
+                            }
+                            final item = items[_tabs.index == 1 ? index - 1 : index];
                             final isOrder = item.containsKey('order_number') && item.containsKey('total');
                             final orderId = isOrder ? asInt(item['id']) : asInt(item['order_id']);
                             return Material(
@@ -142,58 +190,116 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
                                 borderRadius: BorderRadius.circular(14),
                                 onTap: orderId > 0 ? () => context.push('/orders/$orderId') : null,
                                 child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            isOrder
-                                                ? str(item['order_number'], 'Order')
-                                                : str(item['product_name'], 'Item'),
-                                            style: const TextStyle(fontWeight: FontWeight.w800),
+                                  padding: const EdgeInsets.all(14),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              isOrder
+                                                  ? str(item['order_number'], 'Order')
+                                                  : str(item['product_name'], 'Item'),
+                                              style: const TextStyle(fontWeight: FontWeight.w800),
+                                            ),
+                                          ),
+                                          StatusChip(str(item['status'])),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        isOrder
+                                            ? '${str(asMap(item['buyer'])['name'], str(item['buyer_name']))} · ${money.format(asDouble(item['total']))}'
+                                            : '${str(item['order_number'])} · ${str(item['buyer_name'])} → ${str(item['seller_name'])}',
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                                      ),
+                                      if (_tabs.index == 1) ...[
+                                        if (asDouble(item['line_total']) > 0) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Qty ${asInt(item['quantity'])} · ${money.format(asDouble(item['line_total']))}',
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Waiting ${_formatWait(item['hours_waiting'])}',
+                                          style: const TextStyle(
+                                            color: Color(0xFFDC2626),
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
                                           ),
                                         ),
-                                        StatusChip(str(item['status'])),
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: FilledButton(
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: const Color(0xFFDC2626),
+                                              foregroundColor: Colors.white,
+                                            ),
+                                            onPressed: () => _cancel(asInt(item['id'])),
+                                            child: const Text('Cancel & refund'),
+                                          ),
+                                        ),
                                       ],
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      isOrder
-                                          ? '${str(asMap(item['buyer'])['name'], str(item['buyer_name']))} · ${money.format(asDouble(item['total']))}'
-                                          : '${str(item['order_number'])} · ${str(item['buyer_name'])} → ${str(item['seller_name'])}',
-                                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                                    ),
-                                    if (_tabs.index == 1) ...[
-                                      const SizedBox(height: 8),
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: TextButton(
-                                          onPressed: () => _cancel(asInt(item['id'])),
-                                          child: const Text('Cancel & refund'),
+                                      if (_tabs.index == 2) ...[
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: TextButton(
+                                            onPressed: () => _confirm(asInt(item['id'])),
+                                            child: const Text('Confirm delivery'),
+                                          ),
                                         ),
-                                      ),
+                                      ],
                                     ],
-                                    if (_tabs.index == 2) ...[
-                                      const SizedBox(height: 8),
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: TextButton(
-                                          onPressed: () => _confirm(asInt(item['id'])),
-                                          child: const Text('Confirm delivery'),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
+                                  ),
                                 ),
                               ),
-                            ),
                             );
                           },
                         ),
                 ),
+    );
+  }
+}
+
+class _UnprocessedBanner extends StatelessWidget {
+  const _UnprocessedBanner({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Paid orders not yet out for delivery',
+            style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Cancel anytime and refund the buyer’s CityShop wallet. Waiting time is shown on each card.',
+            style: TextStyle(fontSize: 12, color: Color(0xFFB45309), height: 1.35),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$count waiting',
+            style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF92400E)),
+          ),
+        ],
+      ),
     );
   }
 }
