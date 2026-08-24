@@ -331,7 +331,17 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                       Text('Reason: ${seller['rejection_reason']}'),
                     if (activation.isNotEmpty) ...[
                       const SizedBox(height: 8),
-                      Text('Activation: ${str(activation['status'], 'n/a')}'),
+                      Text(
+                        activation['needs_payment'] == true
+                            ? 'Activation: payment due GH₵${asDouble(activation['fee_amount']).toStringAsFixed(2)}. Products are hidden from buyers.'
+                            : activation['is_active'] == true
+                                ? 'Activation: store live${str(activation['paid_until']).isEmpty ? '' : ' until ${str(activation['paid_until'])}'}.'
+                                : 'Activation: ${str(activation['status'], 'not prompted')}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: activation['needs_payment'] == true ? AppColors.danger : AppColors.textPrimary,
+                        ),
+                      ),
                     ],
                     const SizedBox(height: 16),
                     const Text('Seller information', style: TextStyle(fontWeight: FontWeight.w800)),
@@ -427,6 +437,11 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                           );
                         },
                         child: const Text('Block seller'),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Prompt or End hides products from buyers until they pay. Seller gets SMS and an in-app notification. Waive keeps the store live for 1 year.',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton(
