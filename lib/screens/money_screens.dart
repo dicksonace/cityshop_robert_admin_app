@@ -858,7 +858,8 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
     }
     setState(() => saving = true);
     try {
-      final result = await context.read<AdminStore>().patchJson(
+      // POST (not PATCH) — matches web admin; some proxies reject PATCH.
+      final result = await context.read<AdminStore>().postJson(
             '/admin/top-ups/${asInt(widget.item['id'])}/amount',
             data: {'amount': parsed},
           );
@@ -963,14 +964,14 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
                               height: 14,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.edit, size: 16),
-                      label: const Text('Edit'),
+                          : const Icon(Icons.save_outlined, size: 16),
+                      label: Text(saving ? 'Saving…' : 'Save'),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Save edits before approving, or Approve will use the amount in the field.',
+                  'Change the amount, tap Save, then Approve. Or Approve uses the amount in the field.',
                   style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
               ] else
