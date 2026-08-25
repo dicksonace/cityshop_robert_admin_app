@@ -831,7 +831,7 @@ class _PendingFundsScreenState extends State<PendingFundsScreen> {
                 Text('Pending fund releases', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                 SizedBox(height: 6),
                 Text(
-                  'Once a CityShop-secured order is processing, you can Release to the seller’s Available balance anytime — even under 24 hours, and without waiting for the buyer to confirm delivery.',
+                  'As soon as a buyer pays a CityShop-secured order, Release appears here. Tap Release anytime — no 24-hour wait, and no need to wait for delivery confirm.',
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
                 ),
               ],

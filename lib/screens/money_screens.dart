@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../api/api_config.dart';
 import '../store/admin_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -254,7 +256,7 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
                                   final item = items[index];
                                   return _withdrawals
                                       ? _WithdrawalCard(item, onAct: _act, onMarkComplete: _markComplete)
-                                      : _TopUpCard(item, onAct: _act);
+                                      : _TopUpCard(item, onAct: _act, onReload: _load);
                                 },
                               ),
                       ),
@@ -715,16 +717,18 @@ class _WithdrawalDetailsSheet extends StatelessWidget {
 }
 
 class _TopUpCard extends StatelessWidget {
-  const _TopUpCard(this.item, {required this.onAct});
+  const _TopUpCard(this.item, {required this.onAct, required this.onReload});
 
   final Map<String, dynamic> item;
   final Future<void> Function(String path, {Object? data}) onAct;
+  final Future<void> Function() onReload;
 
   @override
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final status = str(item['status']);
     final id = asInt(item['id']);
+    final proof = str(item['proof_url']);
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
@@ -749,15 +753,23 @@ class _TopUpCard extends StatelessWidget {
               '${str(user['name'])} · ${str(item['network'])}\nRef ${str(item['payment_reference'], '—')} · ${str(item['sender_name'])} ${str(item['sender_number'])}',
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
-            if (str(item['proof_url']).isNotEmpty) ...[
+            if (proof.isNotEmpty) ...[
               const SizedBox(height: 8),
-              NetworkThumb(item['proof_url'] as String?, size: 88),
+              GestureDetector(
+                onTap: () => _openProof(context, proof),
+                child: NetworkThumb(item['proof_url'] as String?, size: 88),
+              ),
             ],
-            if (status == 'pending') ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                OutlinedButton(
+                  onPressed: () => _openDetails(context),
+                  child: const Text('View'),
+                ),
+                if (status == 'pending') ...[
                   TextButton(
                     onPressed: () => onAct('/admin/top-ups/$id/approve'),
                     child: const Text('Approve'),
@@ -771,11 +783,334 @@ class _TopUpCard extends StatelessWidget {
                     child: const Text('Reject'),
                   ),
                 ],
-              ),
-            ],
+              ],
+            ),
           ],
         ),
       ),
     );
   }
+
+  Future<void> _openDetails(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _TopUpDetailsSheet(
+        item: item,
+        onAct: onAct,
+        onReload: onReload,
+      ),
+    );
+  }
+}
+
+class _TopUpDetailsSheet extends StatefulWidget {
+  const _TopUpDetailsSheet({
+    required this.item,
+    required this.onAct,
+    required this.onReload,
+  });
+
+  final Map<String, dynamic> item;
+  final Future<void> Function(String path, {Object? data}) onAct;
+  final Future<void> Function() onReload;
+
+  @override
+  State<_TopUpDetailsSheet> createState() => _TopUpDetailsSheetState();
+}
+
+class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
+  late final TextEditingController _amount;
+  bool saving = false;
+  bool acting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _amount = TextEditingController(
+      text: asDouble(widget.item['amount']).toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  String _formatDate(dynamic value) {
+    final raw = str(value);
+    if (raw.isEmpty) return '—';
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    return DateFormat('d MMM yyyy, hh:mm a').format(dt.toLocal());
+  }
+
+  Future<void> _saveAmount() async {
+    final parsed = double.tryParse(_amount.text.trim());
+    if (parsed == null || parsed < 1) {
+      showSnack(context, 'Enter a valid amount (min GH₵1).', error: true);
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      final result = await context.read<AdminStore>().patchJson(
+            '/admin/top-ups/${asInt(widget.item['id'])}/amount',
+            data: {'amount': parsed},
+          );
+      if (!mounted) return;
+      widget.item['amount'] = parsed;
+      showSnack(context, str(result['message'], 'Amount updated.'));
+      await widget.onReload();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _approve() async {
+    final parsed = double.tryParse(_amount.text.trim());
+    setState(() => acting = true);
+    try {
+      await widget.onAct(
+        '/admin/top-ups/${asInt(widget.item['id'])}/approve',
+        data: {
+          if (parsed != null && parsed >= 1) 'amount': parsed,
+        },
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => acting = false);
+    }
+  }
+
+  Future<void> _reject() async {
+    final notes = await promptText(context, title: 'Reject deposit', label: 'Admin notes');
+    if (notes == null || !mounted) return;
+    setState(() => acting = true);
+    try {
+      await widget.onAct(
+        '/admin/top-ups/${asInt(widget.item['id'])}/reject',
+        data: {'admin_notes': notes},
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => acting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = asMap(widget.item['user']);
+    final status = str(widget.item['status']);
+    final proof = str(widget.item['proof_url']);
+    final pending = status == 'pending';
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Deposit details',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  StatusChip(status),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              Text('#${asInt(widget.item['id'])}', style: const TextStyle(color: AppColors.textSecondary)),
+              const SizedBox(height: 14),
+              if (pending) ...[
+                const Text('Amount', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _amount,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          prefixText: 'GH₵ ',
+                          hintText: '0.00',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: saving || acting ? null : _saveAmount,
+                      icon: saving
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.edit, size: 16),
+                      label: const Text('Edit'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Save edits before approving, or Approve will use the amount in the field.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+              ] else
+                Text(
+                  money.format(asDouble(widget.item['amount'])),
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: AppColors.emerald),
+                ),
+              const SizedBox(height: 16),
+              _DetailRow('Name', str(user['name'], '—')),
+              _DetailRow('Email', str(user['email'], '—')),
+              _DetailRow('Phone', str(user['mobile'], '—')),
+              _DetailRow('Network', str(widget.item['network'], '—').toUpperCase()),
+              _DetailRow('Reference', str(widget.item['payment_reference'], '—')),
+              _DetailRow('Sender', '${str(widget.item['sender_name'], '—')} ${str(widget.item['sender_number'])}'.trim()),
+              _DetailRow('Created', _formatDate(widget.item['created_at'])),
+              if (str(widget.item['reviewed_at']).isNotEmpty)
+                _DetailRow('Reviewed', _formatDate(widget.item['reviewed_at'])),
+              if (str(widget.item['user_note']).isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text('User note', style: TextStyle(fontWeight: FontWeight.w800)),
+                Text(str(widget.item['user_note']), style: const TextStyle(color: AppColors.textSecondary)),
+              ],
+              if (str(widget.item['admin_notes']).isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text('Admin notes', style: TextStyle(fontWeight: FontWeight.w800)),
+                Text(str(widget.item['admin_notes']), style: const TextStyle(color: AppColors.textSecondary)),
+              ],
+              if (proof.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text('Payment proof', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => _openProof(context, proof),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: CachedNetworkImage(
+                        imageUrl: ApiConfig.resolveMediaUrl(proof),
+                        fit: BoxFit.contain,
+                        placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
+                        errorWidget: (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
+                      ),
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _openProof(context, proof),
+                  child: const Text('Open full size'),
+                ),
+              ],
+              if (pending) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: acting || saving ? null : _approve,
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                        icon: const Icon(Icons.check, size: 18),
+                        label: Text(acting ? '…' : 'Approve'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: acting || saving ? null : _reject,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          side: const BorderSide(color: Color(0xFFFECACA)),
+                        ),
+                        icon: const Icon(Icons.close, size: 18),
+                        label: const Text('Reject'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+void _openProof(BuildContext context, String url) {
+  final resolved = ApiConfig.resolveMediaUrl(url);
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(12),
+      child: Stack(
+        children: [
+          InteractiveViewer(
+            child: CachedNetworkImage(
+              imageUrl: resolved,
+              fit: BoxFit.contain,
+              errorWidget: (_, _, _) => const Center(
+                child: Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: IconButton(
+              onPressed: () => Navigator.pop(ctx),
+              icon: const Icon(Icons.close, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
