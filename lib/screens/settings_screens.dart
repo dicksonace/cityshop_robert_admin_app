@@ -121,7 +121,8 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
                     Text('Active now: $activeLabel', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
                     const SizedBox(height: 6),
                     const Text(
-                      'If failover is ON and TxtConnect fails (sender ID not approved yet), Formula DC still sends the SMS. Turn failover OFF to test TxtConnect alone.',
+                      'PIN and password reset codes always use the provider you pick here — they never silently fall back to the other one.\n\n'
+                      'If failover is ON, other SMS (orders, alerts) can still use Formula DC when TxtConnect fails. Turn failover OFF to test TxtConnect alone.',
                       style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
                     ),
                     const SizedBox(height: 16),

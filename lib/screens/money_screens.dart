@@ -161,32 +161,28 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_withdrawals) ...[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: Text(
-                '1) Start processing so the seller sees progress. 2) Send MoMo / bank yourself. 3) Mark complete with optional proof, or reject with a reason. Target: about 15 minutes.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, height: 1.35),
-              ),
-            ),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               child: Row(
                 children: [
                   for (final tab in [
-                    ('all', 'Everyone'),
-                    ('seller', 'Sellers ($pendingSellers)'),
-                    ('buyer', 'Buyers ($pendingBuyers)'),
+                    ('all', 'everyone'),
+                    ('seller', 'sellers ($pendingSellers)'),
+                    ('buyer', 'buyers ($pendingBuyers)'),
                   ]) ...[
                     ChoiceChip(
                       label: Text(tab.$2),
                       selected: withdrawalRole == tab.$1,
-                      selectedColor: AppColors.blue,
-                      checkmarkColor: Colors.white,
+                      selectedColor: AppColors.ringOrange,
+                      checkmarkColor: AppColors.primary,
                       labelStyle: TextStyle(
-                        color: withdrawalRole == tab.$1 ? Colors.white : AppColors.textPrimary,
+                        color: withdrawalRole == tab.$1 ? AppColors.primary : AppColors.textPrimary,
                         fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
+                        fontSize: 13,
+                      ),
+                      side: BorderSide(
+                        color: withdrawalRole == tab.$1 ? AppColors.accent : const Color(0xFFE5E7EB),
                       ),
                       onSelected: (_) {
                         withdrawalRole = tab.$1;
@@ -198,38 +194,23 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
                 ],
               ),
             ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                children: [
-                  for (final tab in [
-                    ('pending', 'Pending'),
-                    ('processing', 'Processing ($processingCount)'),
-                    ('paid', 'Paid'),
-                    ('rejected', 'Rejected'),
-                    ('all', 'All'),
-                  ]) ...[
-                    ChoiceChip(
-                      label: Text(tab.$2),
-                      selected: withdrawalStatus == tab.$1,
-                      selectedColor: AppColors.blue,
-                      checkmarkColor: Colors.white,
-                      labelStyle: TextStyle(
-                        color: withdrawalStatus == tab.$1 ? Colors.white : AppColors.textPrimary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                      ),
-                      onSelected: (_) {
-                        withdrawalStatus = tab.$1;
-                        _load();
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                ],
-              ),
+            FilterBar(
+              options: const ['pending', 'processing', 'paid', 'rejected', 'all'],
+              value: withdrawalStatus,
+              onChanged: (value) {
+                // Map display labels that include counts for processing.
+                withdrawalStatus = value;
+                _load();
+              },
             ),
+            if (processingCount > 0 && withdrawalStatus == 'pending')
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Text(
+                  '$processingCount processing — switch filter to review them',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                ),
+              ),
           ] else
             FilterBar(
               options: const ['pending', 'approved', 'rejected', 'all'],
@@ -354,151 +335,94 @@ class _WithdrawalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final seller = asMap(item['seller']);
-    final wallet = asMap(item['wallet']);
     final status = str(item['status']);
     final role = str(user['role']);
     final id = asInt(item['id']);
     final number = str(item['momo_number']);
-    final fee = asDouble(item['fee']);
+    final network = str(item['network_label'], str(item['network']));
     final displayName = str(seller['business_name'], str(user['name']));
-    final isSeller = role == 'seller';
+    final fee = asDouble(item['fee']);
 
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        money.format(asDouble(item['amount'])),
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
-                      ),
-                      if (fee > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEDE9FE),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'Fee ${money.format(fee)}',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF6D28D9)),
-                          ),
-                        ),
-                      StatusChip(status),
-                      StatusChip(role.isEmpty ? 'user' : role, color: isSeller ? AppColors.accent : AppColors.blue),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(displayName, style: const TextStyle(fontWeight: FontWeight.w800)),
-            Text(
-              [
-                str(user['email']),
-                str(user['mobile']),
-              ].where((e) => e.isNotEmpty).join(' · '),
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 10),
-            _PayToBox(
-              item: item,
-              onCopy: () => copyText(context, number, label: 'Account number copied.'),
-            ),
-            if (isSeller && wallet.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7ED),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFFED7AA)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.storefront, size: 16, color: Color(0xFF9A3412)),
-                        SizedBox(width: 6),
-                        Text('Seller details', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF9A3412))),
-                      ],
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _openDetails(context),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      money.format(asDouble(item['amount'])),
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                     ),
-                    const SizedBox(height: 8),
-                    _WalletLine('Store', displayName),
-                    _WalletLine('Current available', money.format(asDouble(wallet['available_balance'])), valueColor: AppColors.emerald),
-                    _WalletLine('Pending balance', money.format(asDouble(wallet['pending_balance']))),
-                    _WalletLine('Lifetime withdrawn', money.format(asDouble(wallet['withdrawn_amount']))),
-                    const SizedBox(height: 4),
-                    const Text('Seller earnings withdrawal', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFC2410C))),
-                  ],
-                ),
+                  ),
+                  StatusChip(status),
+                ],
               ),
-            ] else if (!isSeller && wallet.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
-                'Current available: ${money.format(asDouble(wallet['available_balance']))}',
-                style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                [
+                  displayName,
+                  if (network.isNotEmpty) network.toLowerCase(),
+                  if (role.isNotEmpty) role,
+                ].join(' · '),
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+              Text(
+                [
+                  if (number.isNotEmpty) number,
+                  if (fee > 0) 'Fee ${money.format(fee)}',
+                  'Ref ${str(item['reference'], str(item['id'], '—'))}',
+                ].join(' · '),
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => _openDetails(context),
+                    child: const Text('View'),
+                  ),
+                  if (status == 'pending') ...[
+                    TextButton(
+                      onPressed: () => onAct('/admin/withdrawals/$id/start'),
+                      child: const Text('Start'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        final reason = await promptText(context, title: 'Reject withdrawal', label: 'Reason');
+                        if (reason == null) return;
+                        await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
+                      },
+                      child: const Text('Reject'),
+                    ),
+                  ],
+                  if (status == 'processing') ...[
+                    TextButton(
+                      onPressed: () => onMarkComplete(id),
+                      child: const Text('Complete'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        final reason = await promptText(context, title: 'Reject & refund', label: 'Reason');
+                        if (reason == null) return;
+                        await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
+                      },
+                      child: const Text('Reject'),
+                    ),
+                  ],
+                ],
               ),
             ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton(
-                  onPressed: () => _openDetails(context),
-                  child: const Text('Full details'),
-                ),
-                if (status == 'pending') ...[
-                  FilledButton.icon(
-                    onPressed: () => onAct('/admin/withdrawals/$id/start'),
-                    style: FilledButton.styleFrom(backgroundColor: AppColors.blue),
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                    label: const Text('Start processing'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () async {
-                      final reason = await promptText(context, title: 'Reject withdrawal', label: 'Reason');
-                      if (reason == null) return;
-                      await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
-                    },
-                    style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
-                    child: const Text('Reject'),
-                  ),
-                ],
-                if (status == 'processing') ...[
-                  FilledButton.icon(
-                    onPressed: () => onMarkComplete(id),
-                    style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
-                    icon: const Icon(Icons.check, size: 18),
-                    label: const Text('Mark complete'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () async {
-                      final reason = await promptText(context, title: 'Reject & refund', label: 'Reason');
-                      if (reason == null) return;
-                      await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
-                    },
-                    style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
-                    child: const Text('Reject & refund'),
-                  ),
-                ],
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -512,30 +436,10 @@ class _WithdrawalCard extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => _WithdrawalDetailsSheet(item: item),
-    );
-  }
-}
-
-class _WalletLine extends StatelessWidget {
-  const _WalletLine(this.label, this.value, {this.valueColor});
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF9A3412)))),
-          Text(
-            value,
-            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: valueColor ?? const Color(0xFF7C2D12)),
-          ),
-        ],
+      builder: (ctx) => _WithdrawalDetailsSheet(
+        item: item,
+        onAct: onAct,
+        onMarkComplete: onMarkComplete,
       ),
     );
   }
@@ -609,17 +513,74 @@ class _PayToBox extends StatelessWidget {
   }
 }
 
-class _WithdrawalDetailsSheet extends StatelessWidget {
-  const _WithdrawalDetailsSheet({required this.item});
+class _WithdrawalDetailsSheet extends StatefulWidget {
+  const _WithdrawalDetailsSheet({
+    required this.item,
+    required this.onAct,
+    required this.onMarkComplete,
+  });
 
   final Map<String, dynamic> item;
+  final Future<void> Function(String path, {Object? data}) onAct;
+  final Future<void> Function(int id) onMarkComplete;
+
+  @override
+  State<_WithdrawalDetailsSheet> createState() => _WithdrawalDetailsSheetState();
+}
+
+class _WithdrawalDetailsSheetState extends State<_WithdrawalDetailsSheet> {
+  bool acting = false;
+
+  Map<String, dynamic> get item => widget.item;
 
   String _formatDate(dynamic value) {
     final raw = str(value);
     if (raw.isEmpty) return '—';
     final dt = DateTime.tryParse(raw);
     if (dt == null) return raw;
-    return DateFormat('d MMM yyyy, hh:mm:ss a').format(dt.toLocal());
+    return DateFormat('d MMM yyyy, hh:mm a').format(dt.toLocal());
+  }
+
+  Future<void> _reject({required bool refund}) async {
+    final reason = await promptText(
+      context,
+      title: refund ? 'Reject & refund' : 'Reject withdrawal',
+      label: 'Reason',
+    );
+    if (reason == null || !mounted) return;
+    setState(() => acting = true);
+    try {
+      await widget.onAct(
+        '/admin/withdrawals/${asInt(item['id'])}/reject',
+        data: {'rejection_reason': reason},
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => acting = false);
+    }
+  }
+
+  Future<void> _start() async {
+    setState(() => acting = true);
+    try {
+      await widget.onAct('/admin/withdrawals/${asInt(item['id'])}/start');
+      if (!mounted) return;
+      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => acting = false);
+    }
+  }
+
+  Future<void> _complete() async {
+    setState(() => acting = true);
+    try {
+      await widget.onMarkComplete(asInt(item['id']));
+      if (!mounted) return;
+      Navigator.pop(context);
+    } finally {
+      if (mounted) setState(() => acting = false);
+    }
   }
 
   @override
@@ -629,27 +590,35 @@ class _WithdrawalDetailsSheet extends StatelessWidget {
     final wallet = asMap(item['wallet']);
     final number = str(item['momo_number']);
     final status = str(item['status']);
+    final pending = status == 'pending';
+    final processing = status == 'processing';
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final displayName = str(seller['business_name'], str(user['name']));
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
-                  Expanded(
+                  const Expanded(
                     child: Text(
-                      'Withdrawal #${asInt(item['id'])}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                      'Withdrawal details',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                     ),
                   ),
                   StatusChip(status),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
+              Text('#${asInt(item['id'])}', style: const TextStyle(color: AppColors.textSecondary)),
               const SizedBox(height: 14),
-              const Text('Amount to send', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
               Text(
                 money.format(asDouble(item['amount'])),
                 style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: AppColors.emerald),
@@ -659,16 +628,24 @@ class _WithdrawalDetailsSheet extends StatelessWidget {
                   'Fee ${money.format(asDouble(item['fee']))} · Debited ${money.format(asDouble(item['total_debited']))}',
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
-              const SizedBox(height: 14),
-              Text(
-                str(user['role']) == 'seller' ? 'Seller' : 'User',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              Text(str(seller['business_name'], str(user['name']))),
-              if (str(user['email']).isNotEmpty) Text(str(user['email']), style: const TextStyle(color: AppColors.textSecondary)),
-              if (str(user['mobile']).isNotEmpty) Text(str(user['mobile']), style: const TextStyle(color: AppColors.textSecondary)),
-              if (str(seller['slug']).isNotEmpty)
-                Text('Store: /store/${str(seller['slug'])}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              const SizedBox(height: 16),
+              _DetailRow('Name', displayName.isEmpty ? '—' : displayName),
+              _DetailRow('Email', str(user['email'], '—')),
+              _DetailRow('Phone', str(user['mobile'], '—')),
+              _DetailRow('Role', str(user['role'], 'user')),
+              _DetailRow('Method', str(item['pay_to_label'], 'Mobile money')),
+              _DetailRow('Network', str(item['network_label'], str(item['network'], '—')).toUpperCase()),
+              _DetailRow('Account', number.isEmpty ? '—' : number),
+              if (str(item['account_name']).isNotEmpty)
+                _DetailRow('Account name', str(item['account_name'])),
+              _DetailRow('Status', status),
+              _DetailRow('Created', _formatDate(item['created_at'])),
+              if (str(item['processed_at']).isNotEmpty)
+                _DetailRow('Processed', _formatDate(item['processed_at'])),
+              if (str(item['rejection_reason']).isNotEmpty)
+                _DetailRow('Reject reason', str(item['rejection_reason'])),
+              if (str(item['admin_notes']).isNotEmpty)
+                _DetailRow('Admin notes', str(item['admin_notes'])),
               if (wallet.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Container(
@@ -680,7 +657,10 @@ class _WithdrawalDetailsSheet extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('CURRENT AVAILABLE BALANCE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+                      const Text(
+                        'CURRENT AVAILABLE BALANCE',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+                      ),
                       Text(
                         money.format(asDouble(wallet['available_balance'])),
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF047857)),
@@ -699,18 +679,83 @@ class _WithdrawalDetailsSheet extends StatelessWidget {
                 onCopy: () => copyText(context, number, label: 'Account number copied.'),
               ),
               const SizedBox(height: 14),
-              const Text('Timeline', style: TextStyle(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text('Requested: ${_formatDate(item['created_at'])}'),
-              Text('Processed: ${_formatDate(item['processed_at'])}'),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
+              const Text('Transaction timeline', style: TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              _TimelineDot(label: 'Withdrawal created', when: _formatDate(item['created_at'])),
+              if (str(item['processed_at']).isNotEmpty)
+                _TimelineDot(label: 'Processed', when: _formatDate(item['processed_at'])),
+              if (pending || processing) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (pending)
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: acting ? null : _start,
+                          style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                          icon: const Icon(Icons.play_arrow, size: 18),
+                          label: Text(acting ? '…' : 'Start'),
+                        ),
+                      ),
+                    if (processing)
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: acting ? null : _complete,
+                          style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                          icon: const Icon(Icons.check, size: 18),
+                          label: Text(acting ? '…' : 'Complete'),
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: acting ? null : () => _reject(refund: processing),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          side: const BorderSide(color: Color(0xFFFECACA)),
+                        ),
+                        icon: const Icon(Icons.close, size: 18),
+                        label: const Text('Reject'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TimelineDot extends StatelessWidget {
+  const _TimelineDot({required this.label, required this.when});
+
+  final String label;
+  final String when;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            margin: const EdgeInsets.only(top: 4),
+            decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '$label: $when',
+              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }
