@@ -772,65 +772,73 @@ class _TopUpCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final status = str(item['status']);
-    final id = asInt(item['id']);
     final proof = str(item['proof_url']);
+    final pending = status == 'pending';
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _openDetails(context),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      money.format(asDouble(item['amount'])),
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    ),
+                  ),
+                  StatusChip(status),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${str(user['name'])} · ${str(item['network'])}\nRef ${str(item['payment_reference'], '—')} · ${str(item['sender_name'])} ${str(item['sender_number'])}',
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+              if (pending)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
                   child: Text(
-                    money.format(asDouble(item['amount'])),
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    'Tap to check proof and edit amount if needed',
+                    style: TextStyle(color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ),
-                StatusChip(status),
+              if (proof.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => _openDetails(context),
+                  child: NetworkThumb(item['proof_url'] as String?, size: 88),
+                ),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${str(user['name'])} · ${str(item['network'])}\nRef ${str(item['payment_reference'], '—')} · ${str(item['sender_name'])} ${str(item['sender_number'])}',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            if (proof.isNotEmpty) ...[
               const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () => _openProof(context, proof),
-                child: NetworkThumb(item['proof_url'] as String?, size: 88),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (pending)
+                    FilledButton.tonal(
+                      onPressed: () => _openDetails(context),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.ringOrange,
+                        foregroundColor: AppColors.primary,
+                      ),
+                      child: const Text('Review & edit'),
+                    )
+                  else
+                    OutlinedButton(
+                      onPressed: () => _openDetails(context),
+                      child: const Text('View'),
+                    ),
+                ],
               ),
             ],
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                OutlinedButton(
-                  onPressed: () => _openDetails(context),
-                  child: const Text('View'),
-                ),
-                if (status == 'pending') ...[
-                  TextButton(
-                    onPressed: () => onAct('/admin/top-ups/$id/approve'),
-                    child: const Text('Approve'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      final notes = await promptText(context, title: 'Reject deposit', label: 'Admin notes');
-                      if (notes == null) return;
-                      await onAct('/admin/top-ups/$id/reject', data: {'admin_notes': notes});
-                    },
-                    child: const Text('Reject'),
-                  ),
-                ],
-              ],
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -870,15 +878,15 @@ class _TopUpDetailsSheet extends StatefulWidget {
 
 class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
   late final TextEditingController _amount;
+  late final double _originalAmount;
   bool saving = false;
   bool acting = false;
 
   @override
   void initState() {
     super.initState();
-    _amount = TextEditingController(
-      text: asDouble(widget.item['amount']).toStringAsFixed(2),
-    );
+    _originalAmount = asDouble(widget.item['amount']);
+    _amount = TextEditingController(text: _originalAmount.toStringAsFixed(2));
   }
 
   @override
@@ -922,13 +930,24 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
 
   Future<void> _approve() async {
     final parsed = double.tryParse(_amount.text.trim());
+    if (parsed == null || parsed < 1) {
+      showSnack(context, 'Enter a valid amount (min GH₵1).', error: true);
+      return;
+    }
+    if ((parsed - _originalAmount).abs() > 0.001) {
+      final ok = await confirmAction(
+        context,
+        title: 'Approve different amount?',
+        body: 'User submitted ${money.format(_originalAmount)} but you will credit ${money.format(parsed)}.',
+        action: 'Approve',
+      );
+      if (!ok || !mounted) return;
+    }
     setState(() => acting = true);
     try {
       await widget.onAct(
         '/admin/top-ups/${asInt(widget.item['id'])}/approve',
-        data: {
-          if (parsed != null && parsed >= 1) 'amount': parsed,
-        },
+        data: {'amount': parsed},
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -972,7 +991,7 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
                 children: [
                   const Expanded(
                     child: Text(
-                      'Deposit details',
+                      'Review deposit',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                     ),
                   ),
@@ -984,9 +1003,40 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
                 ],
               ),
               Text('#${asInt(widget.item['id'])}', style: const TextStyle(color: AppColors.textSecondary)),
-              const SizedBox(height: 14),
               if (pending) ...[
-                const Text('Amount', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                const Text(
+                  'Check the payment proof below. Change the amount if the user entered the wrong value.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                ),
+              ],
+              const SizedBox(height: 14),
+              if (proof.isNotEmpty) ...[
+                const Text('Payment proof', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => _openProof(context, proof),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: CachedNetworkImage(
+                        imageUrl: ApiConfig.resolveMediaUrl(proof),
+                        fit: BoxFit.contain,
+                        placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
+                        errorWidget: (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
+                      ),
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _openProof(context, proof),
+                  child: const Text('Open full size'),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (pending) ...[
+                const Text('Amount to credit', style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -1016,15 +1066,17 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Change the amount, tap Save, then Approve. Or Approve uses the amount in the field.',
+                  'Match this to the proof screenshot, then Save or Approve.',
                   style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
-              ] else
+                const SizedBox(height: 16),
+              ] else ...[
                 Text(
                   money.format(asDouble(widget.item['amount'])),
                   style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: AppColors.emerald),
                 ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               _DetailRow('Name', str(user['name'], '—')),
               _DetailRow('Email', str(user['email'], '—')),
               _DetailRow('Phone', str(user['mobile'], '—')),
@@ -1043,30 +1095,6 @@ class _TopUpDetailsSheetState extends State<_TopUpDetailsSheet> {
                 const SizedBox(height: 10),
                 const Text('Admin notes', style: TextStyle(fontWeight: FontWeight.w800)),
                 Text(str(widget.item['admin_notes']), style: const TextStyle(color: AppColors.textSecondary)),
-              ],
-              if (proof.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Text('Payment proof', style: TextStyle(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: () => _openProof(context, proof),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: AspectRatio(
-                      aspectRatio: 3 / 4,
-                      child: CachedNetworkImage(
-                        imageUrl: ApiConfig.resolveMediaUrl(proof),
-                        fit: BoxFit.contain,
-                        placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
-                        errorWidget: (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
-                      ),
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => _openProof(context, proof),
-                  child: const Text('Open full size'),
-                ),
               ],
               if (pending) ...[
                 const SizedBox(height: 12),

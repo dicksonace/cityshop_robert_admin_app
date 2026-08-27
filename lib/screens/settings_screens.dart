@@ -22,6 +22,9 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
   Map<String, dynamic> settings = {};
   List<Map<String, dynamic>> providers = [];
   final _alert1 = TextEditingController();
+  final _alert2 = TextEditingController();
+  final _alert3 = TextEditingController();
+  final _alert4 = TextEditingController();
   final _testMobile = TextEditingController();
 
   @override
@@ -33,6 +36,9 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
   @override
   void dispose() {
     _alert1.dispose();
+    _alert2.dispose();
+    _alert3.dispose();
+    _alert4.dispose();
     _testMobile.dispose();
     super.dispose();
   }
@@ -48,6 +54,9 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
       settings = asMap(data['settings']);
       providers = asMaps(data['providers']);
       _alert1.text = str(settings['alert_mobile_1']);
+      _alert2.text = str(settings['alert_mobile_2']);
+      _alert3.text = str(settings['alert_mobile_3']);
+      _alert4.text = str(settings['alert_mobile_4']);
       setState(() => loading = false);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -68,13 +77,19 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
         'driver': _driver,
         'failover': _failover,
         'alert_mobile_1': _alert1.text.trim(),
-        'alert_mobile_2': settings['alert_mobile_2'] ?? '',
-        'alert_mobile_3': settings['alert_mobile_3'] ?? '',
-        'alert_mobile_4': settings['alert_mobile_4'] ?? '',
+        'alert_mobile_2': _alert2.text.trim(),
+        'alert_mobile_3': _alert3.text.trim(),
+        'alert_mobile_4': _alert4.text.trim(),
       });
       if (!mounted) return;
       final saved = asMap(result['settings']);
-      if (saved.isNotEmpty) settings = {...settings, ...saved};
+      if (saved.isNotEmpty) {
+        settings = {...settings, ...saved};
+        _alert1.text = str(settings['alert_mobile_1']);
+        _alert2.text = str(settings['alert_mobile_2']);
+        _alert3.text = str(settings['alert_mobile_3']);
+        _alert4.text = str(settings['alert_mobile_4']);
+      }
       showSnack(context, str(result['message'], 'Saved.'));
       setState(() => saving = false);
     } on ApiException catch (e) {
@@ -156,7 +171,37 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
                       value: _failover,
                       onChanged: (value) => setState(() => settings['failover'] = value),
                     ),
-                    TextField(controller: _alert1, decoration: const InputDecoration(labelText: 'Alert mobile 1')),
+                    const SizedBox(height: 8),
+                    const Text('Admin alert numbers', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'These numbers get SMS when a buyer submits a withdrawal, a pending manual deposit, or a Transfer to China.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _alert1,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Alert number 1', hintText: '0XX XXX XXXX'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _alert2,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Alert number 2', hintText: '0XX XXX XXXX'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _alert3,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Alert number 3', hintText: '0XX XXX XXXX'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _alert4,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Alert number 4', hintText: '0XX XXX XXXX'),
+                    ),
                     const SizedBox(height: 16),
                     PrimaryButton(
                       label: 'Save SMS platform',
@@ -627,8 +672,10 @@ class ManualFundingSettingsScreen extends StatefulWidget {
 
 class _ManualFundingSettingsScreenState extends State<ManualFundingSettingsScreen> {
   bool loading = true;
+  bool saving = false;
   String? error;
   Map<String, dynamic> settings = {};
+  final _instructions = TextEditingController();
 
   @override
   void initState() {
@@ -636,11 +683,48 @@ class _ManualFundingSettingsScreenState extends State<ManualFundingSettingsScree
     _load();
   }
 
+  @override
+  void dispose() {
+    _instructions.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _accounts =>
+      asMaps(settings['accounts']).map((a) => Map<String, dynamic>.from(a)).toList();
+
+  set _accounts(List<Map<String, dynamic>> value) {
+    settings['accounts'] = value;
+  }
+
+  Map<String, dynamic> _normalizeAccount(Map<String, dynamic> raw) {
+    final type = str(raw['type'], 'momo') == 'bank' ? 'bank' : 'momo';
+    final network = str(raw['network'], 'mtn').toLowerCase();
+    return {
+      'type': type,
+      'label': str(raw['label'], type == 'bank' ? 'Bank transfer' : 'Mobile Money'),
+      'account_name': str(raw['account_name']),
+      'account_number': str(raw['account_number']),
+      'network': type == 'momo'
+          ? (['mtn', 'telecel', 'airteltigo'].contains(network) ? network : 'mtn')
+          : null,
+      'bank_name': type == 'bank' ? str(raw['bank_name']) : null,
+    };
+  }
+
   Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
       final data = await context.read<AdminStore>().getJson('/admin/settings/manual-funding');
       if (!mounted) return;
       settings = asMap(data['settings']);
+      final accounts = asMaps(settings['accounts']);
+      settings['accounts'] = accounts.isEmpty
+          ? [_defaultAccount()]
+          : accounts.map((a) => _normalizeAccount(a)).toList();
+      _instructions.text = str(settings['instructions']);
       setState(() => loading = false);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -651,9 +735,68 @@ class _ManualFundingSettingsScreenState extends State<ManualFundingSettingsScree
     }
   }
 
+  Map<String, dynamic> _defaultAccount({String network = 'mtn'}) {
+    final label = switch (network) {
+      'telecel' => 'Telecel Cash',
+      'airteltigo' => 'AirtelTigo Cash',
+      _ => 'MTN Mobile Money',
+    };
+    return {
+      'type': 'momo',
+      'label': label,
+      'account_name': 'City Unlock Ventures / Robert Asare',
+      'account_number': '',
+      'network': network,
+      'bank_name': null,
+    };
+  }
+
+  void _updateAccount(int index, Map<String, dynamic> patch) {
+    final next = [..._accounts];
+    next[index] = _normalizeAccount({...next[index], ...patch});
+    setState(() => _accounts = next);
+  }
+
+  Future<void> _deleteAccount(int index) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Remove account?',
+      body: 'Buyers will no longer see ${_accounts[index]['label']}. You can add it again later.',
+      action: 'Remove',
+    );
+    if (!ok || !mounted) return;
+    setState(() {
+      final next = [..._accounts]..removeAt(index);
+      _accounts = next;
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() => saving = true);
+    try {
+      final payloadAccounts = _accounts
+          .map((a) => _normalizeAccount(a))
+          .where((a) => str(a['account_number']).isNotEmpty)
+          .toList();
+      final result = await context.read<AdminStore>().postJson('/admin/settings/manual-funding', data: {
+        'enabled': settings['enabled'] == true,
+        'instructions': _instructions.text.trim(),
+        'accounts': payloadAccounts,
+      });
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Saved.'));
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final accounts = asMaps(settings['accounts']);
+    final accounts = _accounts;
     return Scaffold(
       appBar: AppBar(title: const Text('Manual funding')),
       body: loading
@@ -661,40 +804,173 @@ class _ManualFundingSettingsScreenState extends State<ManualFundingSettingsScree
           : error != null
               ? ErrorRetry(message: error!, onRetry: _load)
               : ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                   children: [
                     SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
                       title: const Text('Show manual accounts'),
+                      subtitle: const Text('Let buyers and sellers top up by MoMo or bank transfer'),
                       value: settings['enabled'] == true,
                       onChanged: (value) => setState(() => settings['enabled'] = value),
                     ),
-                    Text(str(settings['instructions'])),
                     const SizedBox(height: 12),
-                    ...accounts.map((account) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(str(account['label'])),
-                          subtitle: Text('${str(account['account_name'])} · ${str(account['account_number'])}'),
-                        )),
+                    TextField(
+                      controller: _instructions,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Instructions for users',
+                        hintText: 'Send payment to one of the accounts below…',
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Receive accounts',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: accounts.length >= 10
+                              ? null
+                              : () => setState(() => _accounts = [...accounts, _defaultAccount()]),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    for (var i = 0; i < accounts.length; i++)
+                      _ManualFundingAccountCard(
+                        key: ValueKey('mf-$i-${accounts[i]['type']}-${accounts[i]['network']}-${accounts[i]['account_number']}'),
+                        index: i,
+                        account: accounts[i],
+                        onChanged: (patch) => _updateAccount(i, patch),
+                        onDelete: () => _deleteAccount(i),
+                      ),
                     const SizedBox(height: 16),
                     PrimaryButton(
-                      label: 'Save',
-                      onPressed: () async {
-                        try {
-                          final result = await context.read<AdminStore>().postJson('/admin/settings/manual-funding', data: {
-                            'enabled': settings['enabled'] == true,
-                            'instructions': settings['instructions'],
-                            'accounts': accounts,
-                          });
-                          if (!context.mounted) return;
-                          showSnack(context, str(result['message'], 'Saved.'));
-                        } on ApiException catch (e) {
-                          if (!context.mounted) return;
-                          showSnack(context, e.message, error: true);
-                        }
-                      },
+                      label: saving ? 'Saving…' : 'Save',
+                      loading: saving,
+                      onPressed: saving ? null : _save,
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _ManualFundingAccountCard extends StatelessWidget {
+  const _ManualFundingAccountCard({
+    super.key,
+    required this.index,
+    required this.account,
+    required this.onChanged,
+    required this.onDelete,
+  });
+
+  final int index;
+  final Map<String, dynamic> account;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = str(account['type'], 'momo') == 'bank' ? 'bank' : 'momo';
+    final network = str(account['network'], 'mtn');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text('Account ${index + 1}', style: const TextStyle(fontWeight: FontWeight.w800)),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Remove account',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: type,
+            decoration: const InputDecoration(labelText: 'Type'),
+            items: const [
+              DropdownMenuItem(value: 'momo', child: Text('Mobile Money')),
+              DropdownMenuItem(value: 'bank', child: Text('Bank')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              onChanged({
+                'type': value,
+                if (value == 'momo') 'network': network.isEmpty ? 'mtn' : network,
+              });
+            },
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            initialValue: str(account['label']),
+            decoration: const InputDecoration(labelText: 'Label'),
+            onChanged: (value) => onChanged({'label': value}),
+          ),
+          if (type == 'momo') ...[
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: ['mtn', 'telecel', 'airteltigo'].contains(network) ? network : 'mtn',
+              decoration: const InputDecoration(labelText: 'Network'),
+              items: const [
+                DropdownMenuItem(value: 'mtn', child: Text('MTN Mobile Money')),
+                DropdownMenuItem(value: 'telecel', child: Text('Telecel Cash')),
+                DropdownMenuItem(value: 'airteltigo', child: Text('AirtelTigo Cash')),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                final label = switch (value) {
+                  'telecel' => 'Telecel Cash',
+                  'airteltigo' => 'AirtelTigo Cash',
+                  _ => 'MTN Mobile Money',
+                };
+                onChanged({'network': value, 'label': label});
+              },
+            ),
+          ],
+          if (type == 'bank') ...[
+            const SizedBox(height: 10),
+            TextFormField(
+              initialValue: str(account['bank_name']),
+              decoration: const InputDecoration(labelText: 'Bank name'),
+              onChanged: (value) => onChanged({'bank_name': value}),
+            ),
+          ],
+          const SizedBox(height: 10),
+          TextFormField(
+            initialValue: str(account['account_name']),
+            decoration: const InputDecoration(labelText: 'Account name'),
+            onChanged: (value) => onChanged({'account_name': value}),
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            initialValue: str(account['account_number']),
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: type == 'bank' ? 'Account number' : 'MoMo number',
+            ),
+            onChanged: (value) => onChanged({'account_number': value}),
+          ),
+        ],
+      ),
     );
   }
 }
