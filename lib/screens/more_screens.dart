@@ -1105,9 +1105,30 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
   }
 
   Future<void> _fund(Map<String, dynamic> user, String action) async {
+    final currency = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('GHS'),
+              onTap: () => Navigator.pop(ctx, 'GHS'),
+            ),
+            ListTile(
+              title: const Text('RMB'),
+              onTap: () => Navigator.pop(ctx, 'RMB'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (currency == null || !mounted) return;
     final amount = await promptText(
       context,
-      title: action == 'credit' ? 'Add GHS' : 'Remove GHS',
+      title: action == 'credit'
+          ? 'Add $currency'
+          : 'Remove $currency',
       label: 'Amount',
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
     );
@@ -1118,6 +1139,7 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
             data: {
               'user_id': user['id'],
               'action': action,
+              'currency': currency,
               'amount': amount,
             },
           );
@@ -1155,7 +1177,7 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
                 : error != null
                     ? ErrorRetry(message: error!, onRetry: _load)
                     : users.isEmpty
-                        ? const EmptyState('Search a buyer or seller to credit or debit GHS.')
+                        ? const EmptyState('Search a buyer or seller to credit or debit GHS / RMB.')
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                             itemCount: users.length,
@@ -1168,7 +1190,9 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
                                 child: ListTile(
                                   title: Text(str(user['name'])),
                                   subtitle: Text(
-                                    '${str(user['role'])} · ${str(user['mobile'])}\n${money.format(asDouble(user['available_balance']))}',
+                                    '${str(user['role'])} · ${str(user['mobile'])}\n'
+                                    'GHS ${money.format(asDouble(user['available_balance']))}'
+                                    ' · RMB ¥${asDouble(user['rmb_balance']).toStringAsFixed(2)}',
                                   ),
                                   isThreeLine: true,
                                   trailing: PopupMenuButton<String>(

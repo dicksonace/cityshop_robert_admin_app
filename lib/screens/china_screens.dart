@@ -223,6 +223,14 @@ class _TransferDetailState extends State<_TransferDetail> {
                     const SizedBox(height: 8),
                     StatusChip(str(item['status_label'], str(item['status']))),
                     const SizedBox(height: 12),
+                    if (str(item['funding_source_label']).isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          str(item['funding_source_label']),
+                          style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w700),
+                        ),
+                      ),
                     Text(str(asMap(quote['breakdown'])['total'])),
                     Text(str(asMap(quote['breakdown'])['rmb'])),
                     const SizedBox(height: 16),
