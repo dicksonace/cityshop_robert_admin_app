@@ -315,16 +315,26 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                         }
                       },
                     ),
-                    Text('Current rate: ${str(rate['ghs_per_rmb'], 'not set')} GHS per RMB'),
+                    Text(() {
+                      final rmb = rate['rmb_per_ghs'];
+                      final ghs = double.tryParse('${rate['ghs_per_rmb'] ?? ''}');
+                      final shown = rmb ?? (ghs != null && ghs > 0 ? (1 / ghs).toStringAsFixed(4) : null);
+                      return 'Current rate: 1 GHS = ${shown ?? 'not set'} RMB';
+                    }()),
                     const SizedBox(height: 12),
                     PrimaryButton(
                       label: 'Publish new rate',
                       onPressed: () async {
-                        final ghs = await promptText(context, title: 'GHS per 1 RMB', label: 'Rate', keyboardType: const TextInputType.numberWithOptions(decimal: true));
-                        if (ghs == null || !context.mounted) return;
+                        final rmb = await promptText(
+                          context,
+                          title: 'GHS to RMB Rate',
+                          label: '1 GHS = ? RMB',
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        );
+                        if (rmb == null || !context.mounted) return;
                         try {
                           await context.read<AdminStore>().postJson('/admin/china-transfers/rates', data: {
-                            'ghs_per_rmb': ghs,
+                            'rmb_per_ghs': rmb,
                             'fee_mode': 'percent',
                             'fee_value': 0,
                             'min_ghs': 50,
