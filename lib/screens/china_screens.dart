@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io' show File;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -146,6 +149,22 @@ class SellRmbDetailScreen extends StatelessWidget {
   }
 }
 
+bool _adminTransferIsTerminal(String? status) {
+  return [
+    'completed',
+    'cancelled',
+    'payment_rejected',
+    'transfer_failed',
+    'refunded',
+  ].contains(status);
+}
+
+String _formatProofFileSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+}
+
 class _TransferDetail extends StatefulWidget {
   const _TransferDetail({
     required this.id,
@@ -170,6 +189,12 @@ class _TransferDetailState extends State<_TransferDetail> {
   String? error;
   Map<String, dynamic> item = {};
   bool downloadingQr = false;
+  String? pendingProofPath;
+  String? pendingProofName;
+  int? pendingProofBytes;
+  bool submittingProof = false;
+  bool savingPendingProof = false;
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -177,20 +202,144 @@ class _TransferDetailState extends State<_TransferDetail> {
     _load();
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _schedulePoll() {
+    _pollTimer?.cancel();
+    final status = str(item['status']);
+    if (_adminTransferIsTerminal(status)) return;
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _load(silent: true));
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
       final data = await context.read<AdminStore>().getJson(widget.loadPath);
       if (!mounted) return;
       setState(() {
         item = asMap(data['data']);
         loading = false;
+        error = null;
       });
+      _schedulePoll();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        error = e.message;
+        if (!silent) error = e.message;
         loading = false;
       });
+    }
+  }
+
+  Future<void> _pickProofForComplete() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file == null || !mounted) return;
+    final bytes = await File(file.path).length();
+    setState(() {
+      pendingProofPath = file.path;
+      pendingProofName = file.name;
+      pendingProofBytes = bytes;
+    });
+  }
+
+  void _clearPendingProof() {
+    setState(() {
+      pendingProofPath = null;
+      pendingProofName = null;
+      pendingProofBytes = null;
+    });
+  }
+
+  void _openLocalProof(String path) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              child: Image.file(
+                File(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => const Center(
+                  child: Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _savePendingProofToPhotos() async {
+    final path = pendingProofPath;
+    if (path == null || savingPendingProof) return;
+    setState(() => savingPendingProof = true);
+    try {
+      if (!await Gal.hasAccess(toAlbum: true) && !await Gal.requestAccess(toAlbum: true)) {
+        if (mounted) showSnack(context, 'Allow photo access to save the proof.', error: true);
+        return;
+      }
+      await Gal.putImage(path, album: 'CityShop Admin');
+      if (mounted) showSnack(context, 'Proof saved to Photos');
+    } catch (e) {
+      if (mounted) showSnack(context, 'Could not save proof: $e', error: true);
+    } finally {
+      if (mounted) setState(() => savingPendingProof = false);
+    }
+  }
+
+  Future<void> _submitProofAndComplete() async {
+    final path = pendingProofPath;
+    if (path == null) {
+      showSnack(context, 'Add a proof screenshot first.', error: true);
+      return;
+    }
+    if (submittingProof) return;
+
+    final quote = asMap(item['quote']);
+    final rmb = asDouble(quote['rmb_amount']);
+    if (rmb <= 0) {
+      showSnack(context, 'Missing RMB amount on this transfer.', error: true);
+      return;
+    }
+
+    setState(() => submittingProof = true);
+    try {
+      final store = context.read<AdminStore>();
+      final result = await store.postForm(
+        '${widget.loadPath}/complete-with-proof',
+        {'rmb_sent_amount': rmb.toStringAsFixed(2)},
+        fileField: 'proof',
+        filePath: path,
+      );
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Transfer completed.'));
+      _clearPendingProof();
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => submittingProof = false);
     }
   }
 
@@ -295,15 +444,54 @@ class _TransferDetailState extends State<_TransferDetail> {
     final proofs = asMaps(item['proofs']);
     final canUploadProofAndComplete = item['can_upload_proof_and_complete'] == true;
     final actions = widget.actionsBuilder?.call(item) ?? widget.actions;
+    final status = str(item['status']);
+    final terminal = _adminTransferIsTerminal(status);
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: Text(str(item['reference'], widget.title))),
+      appBar: AppBar(
+        title: Text(str(item['reference'], widget.title)),
+        actions: [
+          if (!loading && error == null && !terminal)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 6),
+                      Text('Auto refresh', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => _load(),
+          ),
+        ],
+      ),
       body: loading
           ? const FullPageLoader()
           : error != null
               ? ErrorRetry(message: error!, onRetry: _load)
-              : ListView(
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                   children: [
                     _TransferCard(
@@ -528,7 +716,7 @@ class _TransferDetailState extends State<_TransferDetail> {
                                       Text('Upload proof & complete', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                                       SizedBox(height: 4),
                                       Text(
-                                        'Pick your Alipay screenshot. We finish the transfer automatically.',
+                                        'Add your Alipay screenshot, review it, then tap Complete.',
                                         style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
                                       ),
                                     ],
@@ -537,15 +725,147 @@ class _TransferDetailState extends State<_TransferDetail> {
                               ],
                             ),
                             const SizedBox(height: 14),
-                            FilledButton.icon(
-                              onPressed: () => _run('complete-with-proof', true),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.emerald,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                            if (pendingProofPath == null)
+                              OutlinedButton.icon(
+                                onPressed: _pickProofForComplete,
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                ),
+                                icon: const Icon(Icons.add_photo_alternate_outlined, color: AppColors.emerald),
+                                label: const Text(
+                                  'Add proof screenshot',
+                                  style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
+                                ),
+                              )
+                            else ...[
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFECFDF5),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFF6EE7B7)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.check_circle, color: AppColors.emerald, size: 20),
+                                        const SizedBox(width: 8),
+                                        const Expanded(
+                                          child: Text(
+                                            'Proof ready for review',
+                                            style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    GestureDetector(
+                                      onTap: () => _openLocalProof(pendingProofPath!),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Container(
+                                          color: Colors.white,
+                                          padding: const EdgeInsets.all(8),
+                                          child: AspectRatio(
+                                            aspectRatio: 3 / 4,
+                                            child: Image.file(
+                                              File(pendingProofPath!),
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (_, _, _) => const Center(
+                                                child: Icon(Icons.broken_image_outlined, size: 48),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      pendingProofName ?? 'proof.jpg',
+                                      style: const TextStyle(fontWeight: FontWeight.w700),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (pendingProofBytes != null)
+                                      Text(
+                                        _formatProofFileSize(pendingProofBytes!),
+                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                      ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: _pickProofForComplete,
+                                            icon: const Icon(Icons.edit_outlined, size: 18),
+                                            label: const Text('Change'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: _clearPendingProof,
+                                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                                            icon: const Icon(Icons.close, size: 18),
+                                            label: const Text('Remove'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextButton.icon(
+                                            onPressed: () => _openLocalProof(pendingProofPath!),
+                                            icon: const Icon(Icons.open_in_full, size: 18),
+                                            label: const Text('View full size'),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: TextButton.icon(
+                                            onPressed: savingPendingProof ? null : _savePendingProofToPhotos,
+                                            icon: savingPendingProof
+                                                ? const SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                                  )
+                                                : const Icon(Icons.download_rounded, size: 18),
+                                            label: Text(savingPendingProof ? 'Saving…' : 'Save to Photos'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Check this is the correct Alipay screenshot before completing.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              icon: const Icon(Icons.check_circle_outline),
-                              label: const Text('Upload proof & complete'),
-                            ),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: submittingProof ? null : _submitProofAndComplete,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.emerald,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                ),
+                                icon: submittingProof
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.check_circle_outline),
+                                label: Text(submittingProof ? 'Completing…' : 'Complete transfer'),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -588,6 +908,7 @@ class _TransferDetailState extends State<_TransferDetail> {
                       ),
                   ],
                 ),
+              ),
     );
   }
 }
