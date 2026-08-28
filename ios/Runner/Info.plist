@@ -49,6 +49,8 @@
 	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>CityShop Admin uses photos to attach payout and transfer proof.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>CityShop Admin saves Alipay QR codes to your photo library.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

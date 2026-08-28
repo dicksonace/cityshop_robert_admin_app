@@ -1,9 +1,14 @@
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../api/api_config.dart';
 import '../store/admin_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -139,6 +144,7 @@ class _TransferDetailState extends State<_TransferDetail> {
   bool loading = true;
   String? error;
   Map<String, dynamic> item = {};
+  bool downloadingQr = false;
 
   @override
   void initState() {
@@ -204,10 +210,49 @@ class _TransferDetailState extends State<_TransferDetail> {
     }
   }
 
+  Future<void> _downloadQr(String url, String reference) async {
+    if (downloadingQr) return;
+    setState(() => downloadingQr = true);
+    try {
+      if (!await Gal.hasAccess(toAlbum: true) && !await Gal.requestAccess(toAlbum: true)) {
+        if (mounted) showSnack(context, 'Allow photo access to save the QR code.', error: true);
+        return;
+      }
+
+      final resolved = ApiConfig.resolveMediaUrl(url);
+      final dir = await getTemporaryDirectory();
+      final safeRef = reference.replaceAll(RegExp(r'[^\w\-]+'), '_');
+      final ext = resolved.toLowerCase().contains('.png') ? 'png' : 'jpg';
+      final path = '${dir.path}/alipay_qr_$safeRef.$ext';
+
+      await Dio().download(resolved, path);
+      await Gal.putImage(path, album: 'CityShop Admin');
+
+      if (!mounted) return;
+      showSnack(context, 'QR saved to Photos');
+    } catch (e) {
+      if (mounted) showSnack(context, 'Could not download QR: $e', error: true);
+    } finally {
+      if (mounted) setState(() => downloadingQr = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final quote = asMap(item['quote']);
+    final breakdown = asMap(quote['breakdown']);
+    final fields = asMaps(item['fields']);
+    final qrFields = fields.where(_isTransferQrField).toList();
+    final textFields = fields.where((f) {
+      if (_isTransferQrField(f)) return false;
+      final group = str(f['group']).toLowerCase();
+      return !['payment', 'payment_proof', 'proof'].contains(group);
+    }).toList();
+    final funding = str(item['funding_source']);
+    final paymentProof = str(item['payment_proof_url']);
+    final proofs = asMaps(item['proofs']);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text(str(item['reference'], widget.title))),
@@ -216,35 +261,319 @@ class _TransferDetailState extends State<_TransferDetail> {
           : error != null
               ? ErrorRetry(message: error!, onRetry: _load)
               : ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                   children: [
-                    Text(str(user['name']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-                    Text(str(user['mobile'])),
-                    const SizedBox(height: 8),
-                    StatusChip(str(item['status_label'], str(item['status']))),
-                    const SizedBox(height: 12),
-                    if (str(item['funding_source_label']).isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          str(item['funding_source_label']),
-                          style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w700),
+                    _TransferCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            str(user['name'], 'Buyer'),
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20),
+                          ),
+                          if (str(user['mobile']).isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(str(user['mobile']), style: const TextStyle(color: AppColors.textSecondary)),
+                            ),
+                          const SizedBox(height: 10),
+                          StatusChip(str(item['status_label'], str(item['status']))),
+                        ],
+                      ),
+                    ),
+                    _TransferCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (str(item['funding_source_label']).isNotEmpty)
+                            Text(
+                              str(item['funding_source_label']),
+                              style: const TextStyle(color: AppColors.emerald, fontWeight: FontWeight.w800),
+                            ),
+                          const SizedBox(height: 8),
+                          if (funding == 'rmb_wallet')
+                            Text(
+                              str(breakdown['rmb'], '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}'),
+                              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                            )
+                          else ...[
+                            Text(
+                              str(breakdown['total'], money.format(asDouble(quote['total_payable_ghs']))),
+                              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              str(breakdown['rmb'], '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}'),
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
+                            ),
+                          ],
+                          if (str(breakdown['rate_ghs']).isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              str(breakdown['rate_ghs']),
+                              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (qrFields.isNotEmpty)
+                      ...qrFields.map((field) {
+                        final url = str(field['file_url']);
+                        final label = str(field['label'], 'Alipay QR code');
+                        return _TransferCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.qr_code_2_rounded, color: AppColors.primary),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      label,
+                                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Scan or save this QR when sending RMB on Alipay.',
+                                style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                              ),
+                              const SizedBox(height: 12),
+                              GestureDetector(
+                                onTap: () => _openTransferImage(context, url),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Container(
+                                    color: const Color(0xFFF8FAFC),
+                                    padding: const EdgeInsets.all(16),
+                                    child: AspectRatio(
+                                      aspectRatio: 1,
+                                      child: CachedNetworkImage(
+                                        imageUrl: ApiConfig.resolveMediaUrl(url),
+                                        fit: BoxFit.contain,
+                                        placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
+                                        errorWidget: (_, _, _) => const Center(
+                                          child: Icon(Icons.broken_image_outlined, size: 48),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: downloadingQr
+                                    ? null
+                                    : () => _downloadQr(url, str(item['reference'], 'transfer')),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                ),
+                                icon: downloadingQr
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.download_rounded),
+                                label: Text(downloadingQr ? 'Saving…' : 'Download QR'),
+                              ),
+                              TextButton(
+                                onPressed: () => _openTransferImage(context, url),
+                                child: const Text('View full size'),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    if (textFields.isNotEmpty)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Recipient details', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            const SizedBox(height: 10),
+                            ...textFields.map(
+                              (field) => _TransferDetailRow(
+                                str(field['label'], str(field['name'], 'Field')),
+                                str(field['value'], '—'),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    Text(str(asMap(quote['breakdown'])['total'])),
-                    Text(str(asMap(quote['breakdown'])['rmb'])),
-                    const SizedBox(height: 16),
-                    ...widget.actions.map(
-                      (action) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: OutlinedButton(
-                          onPressed: () => _run(action.$1, action.$3),
-                          child: Text(action.$2),
+                    if (paymentProof.isNotEmpty)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('Payment proof', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            const SizedBox(height: 10),
+                            GestureDetector(
+                              onTap: () => _openTransferImage(context, paymentProof),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: AspectRatio(
+                                  aspectRatio: 3 / 4,
+                                  child: CachedNetworkImage(
+                                    imageUrl: ApiConfig.resolveMediaUrl(paymentProof),
+                                    fit: BoxFit.contain,
+                                    placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
+                                    errorWidget: (_, _, _) => const Center(child: Icon(Icons.broken_image_outlined)),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _openTransferImage(context, paymentProof),
+                              child: const Text('Open full size'),
+                            ),
+                          ],
                         ),
+                      ),
+                    if (proofs.isNotEmpty)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('RMB sent proof', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            const SizedBox(height: 8),
+                            ...proofs.map((proof) {
+                              final url = str(proof['url']);
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.receipt_long_outlined, color: AppColors.emerald),
+                                title: Text(str(proof['original_name'], 'View proof')),
+                                trailing: url.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        icon: const Icon(Icons.open_in_new),
+                                        onPressed: () => _openTransferImage(context, url),
+                                      ),
+                                onTap: url.isEmpty ? null : () => _openTransferImage(context, url),
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    _TransferCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text('Actions', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                          const SizedBox(height: 10),
+                          ...widget.actions.map((action) {
+                            final destructive = action.$1 == 'reject' || action.$1 == 'fail' || action.$1 == 'cancel';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: OutlinedButton(
+                                onPressed: () => _run(action.$1, action.$3),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: destructive ? AppColors.danger : AppColors.textPrimary,
+                                  side: BorderSide(color: destructive ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB)),
+                                  backgroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                ),
+                                child: Text(action.$2),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+bool _isTransferQrField(Map<String, dynamic> field) {
+  if (str(field['file_url']).isEmpty) return false;
+  final type = str(field['type']).toLowerCase();
+  final blob = '${field['name'] ?? ''} ${field['label'] ?? ''}'.toLowerCase();
+  return ['image', 'document', 'files'].contains(type) || blob.contains('qr');
+}
+
+void _openTransferImage(BuildContext context, String url) {
+  final resolved = ApiConfig.resolveMediaUrl(url);
+  if (resolved.isEmpty) return;
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(12),
+      child: Stack(
+        children: [
+          InteractiveViewer(
+            child: CachedNetworkImage(
+              imageUrl: resolved,
+              fit: BoxFit.contain,
+              errorWidget: (_, _, _) => const Center(
+                child: Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: IconButton(
+              onPressed: () => Navigator.pop(ctx),
+              icon: const Icon(Icons.close, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TransferCard extends StatelessWidget {
+  const _TransferCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _TransferDetailRow extends StatelessWidget {
+  const _TransferDetailRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -318,9 +647,55 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                     Text(() {
                       final rmb = rate['rmb_per_ghs'];
                       final ghs = double.tryParse('${rate['ghs_per_rmb'] ?? ''}');
-                      final shown = rmb ?? (ghs != null && ghs > 0 ? (1 / ghs).toStringAsFixed(4) : null);
-                      return 'Current rate: 1 GHS = ${shown ?? 'not set'} RMB';
+                      final rmbPerGhs = rmb is num
+                          ? rmb.toDouble()
+                          : (ghs != null && ghs > 0 ? 1 / ghs : null);
+                      if (rmbPerGhs == null || rmbPerGhs <= 0) {
+                        return 'Current rate: not set';
+                      }
+                      final example = (100 * rmbPerGhs).toStringAsFixed(2);
+                      return 'Buyers see: 1 GHS = ${rmbPerGhs.toStringAsFixed(4)} RMB\nExample: GH₵100 → ¥$example';
                     }()),
+                    Text(
+                      'Hours: ${settings['transfer_open_time'] ?? '04:30'} – ${settings['transfer_close_time'] ?? '17:00'}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    PrimaryButton(
+                      label: 'Edit transfer hours',
+                      onPressed: () async {
+                        final open = await promptText(
+                          context,
+                          title: 'Open time',
+                          label: 'HH:MM (24h)',
+                          initial: '${settings['transfer_open_time'] ?? '04:30'}',
+                          keyboardType: TextInputType.text,
+                        );
+                        if (open == null || !context.mounted) return;
+                        final close = await promptText(
+                          context,
+                          title: 'Close time',
+                          label: 'HH:MM (24h)',
+                          initial: '${settings['transfer_close_time'] ?? '17:00'}',
+                          keyboardType: TextInputType.text,
+                        );
+                        if (close == null || !context.mounted) return;
+                        try {
+                          await context.read<AdminStore>().postJson('/admin/china-transfers/settings', data: {
+                            'enabled': enabled,
+                            'instructions': settings['instructions'],
+                            'transfer_open_time': open,
+                            'transfer_close_time': close,
+                          });
+                          if (!context.mounted) return;
+                          showSnack(context, 'Transfer hours saved.');
+                          await _load();
+                        } on ApiException catch (e) {
+                          if (!context.mounted) return;
+                          showSnack(context, e.message, error: true);
+                        }
+                      },
+                    ),
                     const SizedBox(height: 12),
                     PrimaryButton(
                       label: 'Publish new rate',
@@ -328,7 +703,7 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                         final rmb = await promptText(
                           context,
                           title: 'GHS to RMB Rate',
-                          label: '1 GHS = ? RMB',
+                          label: '1 GHS = ? RMB (e.g. 0.559)',
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         );
                         if (rmb == null || !context.mounted) return;
