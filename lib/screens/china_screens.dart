@@ -25,8 +25,11 @@ class ChinaTransfersScreen extends StatelessWidget {
     return AdminResourceList(
       title: 'Transfer RMB',
       path: '/admin/china-transfers',
-      filters: const ['open', 'all', 'payment_submitted', 'processing', 'rmb_sent', 'completed'],
+      autoRefreshInterval: const Duration(seconds: 8),
+      filterLabelFor: transferStatusFilterLabel,
+      filters: const ['open', 'processing', 'rmb_sent', 'completed', 'all'],
       searchHint: 'Search reference or buyer',
+      listHeader: (meta) => meta == null ? null : _TransferRmbStatsBar(meta: meta),
       itemBuilder: (item, _) => _TransferTile(
         item: item,
         onTap: () => context.push('/china-transfers/${item['id']}'),
@@ -43,11 +46,91 @@ class SellRmbScreen extends StatelessWidget {
     return AdminResourceList(
       title: 'Sell RMB (China → GHS)',
       path: '/admin/sell-rmb',
-      filters: const ['open', 'all', 'submitted', 'rmb_verification', 'payout_processing', 'completed'],
+      autoRefreshInterval: const Duration(seconds: 8),
+      filterLabelFor: transferStatusFilterLabel,
+      filters: const ['open', 'submitted', 'rmb_verification', 'payout_processing', 'completed', 'all'],
       searchHint: 'Search reference or buyer',
       itemBuilder: (item, _) => _TransferTile(
         item: item,
         onTap: () => context.push('/sell-rmb/${item['id']}'),
+      ),
+    );
+  }
+}
+
+class _TransferRmbStatsBar extends StatelessWidget {
+  const _TransferRmbStatsBar({required this.meta});
+
+  final Map<String, dynamic> meta;
+
+  @override
+  Widget build(BuildContext context) {
+    final processing = meta['processing'];
+    final completed = meta['completed'];
+    final today = meta['today'];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _TransferStatChip(
+              label: 'In progress',
+              value: '$processing',
+              color: const Color(0xFFDBEAFE),
+              textColor: const Color(0xFF1D4ED8),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _TransferStatChip(
+              label: 'Completed',
+              value: '$completed',
+              color: const Color(0xFFD1FAE5),
+              textColor: AppColors.emerald,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _TransferStatChip(
+              label: 'Today',
+              value: '$today',
+              color: AppColors.ringOrange,
+              textColor: AppColors.primaryDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransferStatChip extends StatelessWidget {
+  const _TransferStatChip({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.textColor,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final Color textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: textColor)),
+          const SizedBox(height: 2),
+          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
+        ],
       ),
     );
   }
@@ -63,17 +146,48 @@ class _TransferTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final quote = asMap(item['quote']);
+    final reference = str(item['reference'], '#${item['id']}');
+    final buyer = str(user['name'], 'Buyer');
+    final status = str(item['status_label'], str(item['status']));
+    final amount = quote.isEmpty
+        ? ''
+        : str(asMap(quote['breakdown'])['total'], money.format(asDouble(quote['total_payable_ghs'])));
+
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
-      child: ListTile(
-        title: Text(str(item['reference'], '#${item['id']}')),
-        subtitle: Text('${str(user['name'])} · ${str(item['status_label'], str(item['status']))}'),
-        trailing: Text(
-          quote.isEmpty ? '' : str(asMap(quote['breakdown'])['total'], money.format(asDouble(quote['total_payable_ghs']))),
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reference,
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$buyer · $status',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+              if (amount.isNotEmpty)
+                Text(
+                  amount,
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textPrimary),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

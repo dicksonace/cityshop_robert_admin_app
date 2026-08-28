@@ -248,11 +248,15 @@ class FilterBar extends StatelessWidget {
     required this.options,
     required this.value,
     required this.onChanged,
+    this.labelFor,
   });
 
   final List<String> options;
   final String value;
   final ValueChanged<String> onChanged;
+  final String Function(String option)? labelFor;
+
+  String _label(String option) => labelFor?.call(option) ?? option.replaceAll('_', ' ');
 
   @override
   Widget build(BuildContext context) {
@@ -262,9 +266,24 @@ class FilterBar extends StatelessWidget {
       child: Row(
         children: [
           for (final option in options) ...[
-            ChoiceChip(
-              label: Text(option.replaceAll('_', ' ')),
+            FilterChip(
+              label: Text(
+                _label(option),
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: value == option ? AppColors.primaryDark : AppColors.textSecondary,
+                ),
+              ),
               selected: value == option,
+              showCheckmark: true,
+              checkmarkColor: AppColors.primaryDark,
+              selectedColor: AppColors.ringOrange,
+              backgroundColor: Colors.white,
+              side: BorderSide(
+                color: value == option ? AppColors.accent : const Color(0xFFE5E7EB),
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
               onSelected: (_) => onChanged(option),
             ),
             const SizedBox(width: 8),
@@ -272,6 +291,21 @@ class FilterBar extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+String transferStatusFilterLabel(String option) {
+  switch (option) {
+    case 'open':
+      return 'Needs action';
+    case 'payment_submitted':
+      return 'Payment in';
+    case 'rmb_sent':
+      return 'RMB sent';
+    case 'all':
+      return 'All';
+    default:
+      return option.replaceAll('_', ' ');
   }
 }
 

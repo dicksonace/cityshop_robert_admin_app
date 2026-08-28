@@ -21,6 +21,9 @@ class AdminResourceList extends StatefulWidget {
     this.filters,
     this.searchHint,
     this.onCreate,
+    this.autoRefreshInterval,
+    this.filterLabelFor,
+    this.listHeader,
   });
 
   final String title;
@@ -30,6 +33,9 @@ class AdminResourceList extends StatefulWidget {
   final List<String>? filters;
   final String? searchHint;
   final Future<void> Function()? onCreate;
+  final Duration? autoRefreshInterval;
+  final String Function(String option)? filterLabelFor;
+  final Widget? Function(Map<String, dynamic>? meta)? listHeader;
 
   @override
   State<AdminResourceList> createState() => _AdminResourceListState();
@@ -37,30 +43,46 @@ class AdminResourceList extends StatefulWidget {
 
 class _AdminResourceListState extends State<AdminResourceList> {
   bool loading = true;
+  bool silentLoading = false;
   String? error;
   String search = '';
   String? filter;
   List<Map<String, dynamic>> items = [];
+  Map<String, dynamic>? listMeta;
   final _search = TextEditingController();
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     filter = widget.filters?.first;
     _load();
+    _schedulePoll();
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _search.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
+  void _schedulePoll() {
+    _pollTimer?.cancel();
+    final interval = widget.autoRefreshInterval;
+    if (interval == null) return;
+    _pollTimer = Timer.periodic(interval, (_) => _load(silent: true));
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    } else {
+      setState(() => silentLoading = true);
+    }
     try {
       final data = await context.read<AdminStore>().getJson(widget.path, query: {
         ...widget.query,
@@ -71,19 +93,23 @@ class _AdminResourceListState extends State<AdminResourceList> {
       if (!mounted) return;
       setState(() {
         items = asMaps(data['data']);
+        listMeta = data['dashboard'] is Map ? Map<String, dynamic>.from(data['dashboard'] as Map) : null;
         loading = false;
+        silentLoading = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        error = e.message;
+        if (!silent) error = e.message;
         loading = false;
+        silentLoading = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final header = widget.listHeader?.call(listMeta);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -99,6 +125,47 @@ class _AdminResourceListState extends State<AdminResourceList> {
         ),
         title: Text(widget.title),
         actions: [
+          if (widget.autoRefreshInterval != null && !loading && error == null)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: silentLoading
+                            ? const CircularProgressIndicator(strokeWidth: 2)
+                            : const SizedBox(
+                                width: 10,
+                                height: 10,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Color(0xFF3B82F6),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text('Auto refresh', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: silentLoading ? null : () => _load(),
+          ),
           if (widget.onCreate != null)
             IconButton(
               icon: const Icon(Icons.add),
@@ -118,8 +185,30 @@ class _AdminResourceListState extends State<AdminResourceList> {
                 controller: _search,
                 decoration: InputDecoration(
                   hintText: widget.searchHint,
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: IconButton(onPressed: () { search = _search.text.trim(); _load(); }, icon: const Icon(Icons.arrow_forward)),
+                  hintStyle: const TextStyle(color: AppColors.textMuted),
+                  prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                  suffixIcon: IconButton(
+                    onPressed: () {
+                      search = _search.text.trim();
+                      _load();
+                    },
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(999),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(999),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(999),
+                    borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
                 ),
                 onSubmitted: (value) {
                   search = value.trim();
@@ -131,25 +220,31 @@ class _AdminResourceListState extends State<AdminResourceList> {
             FilterBar(
               options: widget.filters!,
               value: filter ?? widget.filters!.first,
+              labelFor: widget.filterLabelFor,
               onChanged: (value) {
                 filter = value;
                 _load();
               },
             ),
+          if (header != null) header,
           Expanded(
             child: loading
                 ? const FullPageLoader()
                 : error != null
                     ? ErrorRetry(message: error!, onRetry: _load)
                     : RefreshIndicator(
-                        onRefresh: _load,
+                        onRefresh: () => _load(),
                         child: items.isEmpty
-                            ? ListView(children: const [SizedBox(height: 80), EmptyState('Nothing here yet.')])
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: const [SizedBox(height: 80), EmptyState('Nothing here yet.')],
+                              )
                             : ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
                                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                                 itemCount: items.length,
-                                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                                itemBuilder: (context, index) => widget.itemBuilder(items[index], _load),
+                                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                                itemBuilder: (context, index) => widget.itemBuilder(items[index], () => _load()),
                               ),
                       ),
           ),
