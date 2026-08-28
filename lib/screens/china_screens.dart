@@ -177,17 +177,29 @@ class _TransferDetailState extends State<_TransferDetail> {
       if (needsProof) {
         final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
         if (file == null || !mounted) return;
-        final amount = await promptText(
-          context,
-          title: action == 'sent' ? 'RMB sent' : 'Payout amount',
-          label: 'Amount',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        );
-        if (amount == null || !mounted) return;
+        final quote = asMap(item['quote']);
+        final String amountStr;
+        if (action == 'sent') {
+          final rmb = asDouble(quote['rmb_amount']);
+          if (rmb <= 0) {
+            showSnack(context, 'Missing RMB amount on this transfer.', error: true);
+            return;
+          }
+          amountStr = rmb.toStringAsFixed(2);
+        } else {
+          var payout = asDouble(quote['payout_amount']);
+          if (payout <= 0) payout = asDouble(quote['ghs_payout']);
+          if (payout <= 0) payout = asDouble(quote['usd_payout']);
+          if (payout <= 0) {
+            showSnack(context, 'Missing payout amount on this transfer.', error: true);
+            return;
+          }
+          amountStr = payout.toStringAsFixed(2);
+        }
         result = await store.postForm(
           '$base/$action',
           {
-            if (action == 'sent') 'rmb_sent_amount': amount else 'payout_amount': amount,
+            if (action == 'sent') 'rmb_sent_amount': amountStr else 'payout_amount': amountStr,
           },
           fileField: 'proof',
           filePath: file.path,
