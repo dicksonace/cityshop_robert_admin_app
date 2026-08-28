@@ -1720,8 +1720,19 @@ class SellRmbSettingsScreen extends StatefulWidget {
 
 class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
   bool loading = true;
+  bool publishing = false;
+  bool savingMethod = false;
+  bool replacingQr = false;
   String? error;
   Map<String, dynamic> data = {};
+  final _ghsPerRmbController = TextEditingController();
+  final _minRmbController = TextEditingController(text: '20');
+  final _accountNameController = TextEditingController();
+  final _accountNumberController = TextEditingController();
+  final _instructionsController = TextEditingController();
+  final _receiveInstructionsController = TextEditingController();
+  String? _qrPath;
+  int? _editingMethodId;
 
   @override
   void initState() {
@@ -1729,7 +1740,60 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _ghsPerRmbController.dispose();
+    _minRmbController.dispose();
+    _accountNameController.dispose();
+    _accountNumberController.dispose();
+    _instructionsController.dispose();
+    _receiveInstructionsController.dispose();
+    super.dispose();
+  }
+
+  Map<String, dynamic> get readiness => asMap(data['readiness']);
+
+  Map<String, dynamic>? get activeAlipayMethod {
+    for (final method in asMaps(data['methods'])) {
+      if (method['active'] == true && (method['type'] == 'alipay' || method['type'] == 'wechat')) {
+        return method;
+      }
+    }
+    return null;
+  }
+
+  void _applyFromPayload() {
+    final rate = asMap(data['current_rate']);
+    final ghs = asDouble(rate['ghs_per_rmb']);
+    if (ghs > 0) {
+      _ghsPerRmbController.text = ghs.toStringAsFixed(4);
+    }
+    final minRmb = asDouble(rate['min_rmb']);
+    if (minRmb > 0) {
+      _minRmbController.text = minRmb.toStringAsFixed(0);
+    }
+
+    final settings = asMap(data['settings']);
+    _instructionsController.text = str(settings['instructions']);
+    _receiveInstructionsController.text = str(settings['receive_instructions']);
+
+    final method = activeAlipayMethod;
+    if (method != null) {
+      _editingMethodId = (method['id'] as num?)?.toInt();
+      _accountNameController.text = str(method['account_name']);
+      _accountNumberController.text = str(method['account_number']);
+    } else {
+      _editingMethodId = null;
+      _accountNameController.text = 'RMB Wallet';
+    }
+    _qrPath = null;
+  }
+
   Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
       final result = await context.read<AdminStore>().getJson('/admin/sell-rmb/settings');
       if (!mounted) return;
@@ -1737,6 +1801,7 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
         data = result;
         loading = false;
       });
+      _applyFromPayload();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1746,11 +1811,165 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
     }
   }
 
+  Future<void> _pickQr() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+    if (file == null || !mounted) return;
+    setState(() => _qrPath = file.path);
+  }
+
+  Future<void> _publishRate() async {
+    final ghs = double.tryParse(_ghsPerRmbController.text.trim());
+    final minRmb = double.tryParse(_minRmbController.text.trim()) ?? 20;
+    if (ghs == null || ghs <= 0) {
+      showSnack(context, 'Enter a valid GHS per 1 RMB rate.', error: true);
+      return;
+    }
+    setState(() => publishing = true);
+    try {
+      await context.read<AdminStore>().postJson('/admin/sell-rmb/rates', data: {
+        'ghs_per_rmb': ghs,
+        'fee_mode': 'percent',
+        'fee_value': 0,
+        'min_rmb': minRmb,
+        'max_rmb': 50000,
+      });
+      if (!mounted) return;
+      showSnack(context, 'Buying rate published.');
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => publishing = false);
+    }
+  }
+
+  Future<void> _replaceQrOnly() async {
+    if (_editingMethodId == null) {
+      showSnack(context, 'Save the Alipay method first, then you can replace the QR anytime.', error: true);
+      return;
+    }
+    if (_qrPath == null) {
+      showSnack(context, 'Choose the new QR image from your gallery.', error: true);
+      return;
+    }
+    setState(() => replacingQr = true);
+    try {
+      await context.read<AdminStore>().postForm(
+        '/admin/sell-rmb/methods/$_editingMethodId/qr',
+        const <String, dynamic>{},
+        fileField: 'qr',
+        filePath: _qrPath!,
+      );
+      if (!mounted) return;
+      showSnack(context, 'New Alipay QR published. Buyers see it on refresh.');
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => replacingQr = false);
+    }
+  }
+
+  Future<void> _saveAlipayMethod() async {
+    final accountName = _accountNameController.text.trim();
+    if (accountName.isEmpty) {
+      showSnack(context, 'Enter the Alipay account name buyers will see.', error: true);
+      return;
+    }
+    if (_editingMethodId == null && _qrPath == null) {
+      showSnack(context, 'Upload your Alipay QR code.', error: true);
+      return;
+    }
+    setState(() => savingMethod = true);
+    try {
+      final store = context.read<AdminStore>();
+      final fields = <String, dynamic>{
+        'name': 'Alipay',
+        'type': 'alipay',
+        'account_name': accountName,
+        if (_accountNumberController.text.trim().isNotEmpty) 'account_number': _accountNumberController.text.trim(),
+        'proof_required': true,
+        'active': true,
+      };
+      if (_editingMethodId != null) {
+        await store.postForm(
+          '/admin/sell-rmb/methods/$_editingMethodId',
+          fields,
+          fileField: _qrPath == null ? null : 'qr',
+          filePath: _qrPath,
+        );
+      } else {
+        await store.postForm(
+          '/admin/sell-rmb/methods',
+          fields,
+          fileField: 'qr',
+          filePath: _qrPath!,
+        );
+      }
+      if (!mounted) return;
+      showSnack(context, 'Alipay receive method saved.');
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => savingMethod = false);
+    }
+  }
+
+  Future<void> _saveInstructions() async {
+    final settings = asMap(data['settings']);
+    try {
+      await context.read<AdminStore>().postJson('/admin/sell-rmb/settings', data: {
+        'enabled': settings['enabled'] == true,
+        'instructions': _instructionsController.text.trim(),
+        'receive_instructions': _receiveInstructionsController.text.trim(),
+      });
+      if (!mounted) return;
+      showSnack(context, 'Instructions saved.');
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    }
+  }
+
+  String _formatQrUpdated(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return 'Not set yet';
+    try {
+      return DateTime.parse(raw).toLocal().toString().substring(0, 16);
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  Widget _checklistRow(String label, bool ok) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(ok ? Icons.check_circle : Icons.radio_button_unchecked, color: ok ? Colors.green : Colors.grey, size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label, style: TextStyle(fontWeight: ok ? FontWeight.w700 : FontWeight.w500))),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = asMap(data['settings']);
-    final rate = asMap(data['current_rate']);
     final enabled = settings['enabled'] == true;
+    final open = data['open'] == true;
+    final rate = asMap(data['current_rate']);
+    final method = activeAlipayMethod;
+    final qrUrl = _qrPath != null
+        ? null
+        : (method?['qr_url'] as String?)?.trim();
+    final liveGhs = asDouble(rate['ghs_per_rmb']);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Sell RMB settings')),
       body: loading
@@ -1760,15 +1979,50 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: open ? const Color(0xFFECFDF5) : const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: open ? const Color(0xFF6EE7B7) : const Color(0xFFFDBA74)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            open ? 'Live for buyers' : 'Not live yet',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                              color: open ? const Color(0xFF047857) : const Color(0xFFC2410C),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            open
+                                ? 'Buyers can sell RMB for GHS on the app and website.'
+                                : 'Complete all steps below. Buyers see “Paused” until everything is ready.',
+                            style: const TextStyle(fontSize: 13, height: 1.35),
+                          ),
+                          const SizedBox(height: 12),
+                          _checklistRow('Live toggle on', readiness['live_toggle'] == true),
+                          _checklistRow('Buying rate published', readiness['rate_published'] == true),
+                          _checklistRow('Alipay QR uploaded', readiness['alipay_qr'] == true),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
                       title: const Text('Live for buyers'),
+                      subtitle: const Text('Turn on when rate and Alipay QR are ready'),
                       value: enabled,
                       onChanged: (value) async {
                         try {
                           await context.read<AdminStore>().postJson('/admin/sell-rmb/settings', data: {
                             'enabled': value,
-                            'instructions': settings['instructions'],
-                            'receive_instructions': settings['receive_instructions'],
+                            'instructions': _instructionsController.text.trim(),
+                            'receive_instructions': _receiveInstructionsController.text.trim(),
                           });
                           await _load();
                         } on ApiException catch (e) {
@@ -1777,37 +2031,205 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
                         }
                       },
                     ),
-                    Text('Buying rate: ${str(rate['ghs_per_rmb'], 'not set')} GHS per RMB'),
-                    const SizedBox(height: 12),
-                    PrimaryButton(
-                      label: 'Publish buying rate',
-                      onPressed: () async {
-                        final ghs = await promptText(context, title: 'GHS per 1 RMB', label: 'Rate', keyboardType: const TextInputType.numberWithOptions(decimal: true));
-                        if (ghs == null || !context.mounted) return;
-                        try {
-                          await context.read<AdminStore>().postJson('/admin/sell-rmb/rates', data: {
-                            'ghs_per_rmb': ghs,
-                            'fee_mode': 'percent',
-                            'fee_value': 0,
-                            'min_rmb': 50,
-                            'max_rmb': 50000,
-                          });
-                          if (!context.mounted) return;
-                          showSnack(context, 'Rate published.');
-                          await _load();
-                        } on ApiException catch (e) {
-                          if (!context.mounted) return;
-                          showSnack(context, e.message, error: true);
-                        }
-                      },
+                    const SizedBox(height: 8),
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Buying rate', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                            if (liveGhs > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, bottom: 12),
+                                child: Text(
+                                  'Live: 1 RMB = ${liveGhs.toStringAsFixed(4)} GHS',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                ),
+                              ),
+                            Row(
+                              children: [
+                                const Text('1 RMB =', style: TextStyle(fontWeight: FontWeight.w700)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _ghsPerRmbController,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      suffixText: 'GHS',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _minRmbController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Minimum RMB amount',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PrimaryButton(
+                              label: publishing ? 'Publishing…' : 'Publish buying rate',
+                              loading: publishing,
+                              onPressed: publishing ? null : _publishRate,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 16),
-                    const Text('Receive methods', style: TextStyle(fontWeight: FontWeight.w800)),
-                    ...asMaps(data['methods']).map((method) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(str(method['name'])),
-                          trailing: StatusChip(method['active'] == true ? 'active' : 'off'),
-                        )),
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Alipay QR code', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                            const SizedBox(height: 4),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFFDBA74)),
+                              ),
+                              child: const Text(
+                                'Alipay QR codes expire or hit limits. Replace anytime — buyers always get the latest code on refresh.',
+                                style: TextStyle(fontSize: 12, height: 1.35, color: Color(0xFF9A3412)),
+                              ),
+                            ),
+                            if (method != null && (method['qr_updated_at'] != null || qrUrl != null)) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'Current QR last updated: ${_formatQrUpdated(method['qr_updated_at'] as String?)}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _accountNameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Paid to name',
+                                hintText: 'RMB Wallet',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _accountNumberController,
+                              decoration: const InputDecoration(
+                                labelText: 'Alipay ID / phone (optional)',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text('QR preview', style: TextStyle(fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 8),
+                            if (_qrPath != null)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.file(File(_qrPath!), height: 200, fit: BoxFit.contain),
+                              )
+                            else if (qrUrl != null && qrUrl.isNotEmpty)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: CachedNetworkImage(imageUrl: qrUrl, height: 200, fit: BoxFit.contain),
+                              )
+                            else
+                              Container(
+                                height: 120,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey.shade300),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text('No QR uploaded yet', style: TextStyle(color: Colors.black54)),
+                              ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: _pickQr,
+                              icon: const Icon(Icons.upload_file),
+                              label: Text(_qrPath != null ? 'Pick new QR image' : (qrUrl != null ? 'Choose replacement QR' : 'Upload QR image')),
+                            ),
+                            if (_editingMethodId != null && _qrPath != null) ...[
+                              const SizedBox(height: 10),
+                              PrimaryButton(
+                                label: replacingQr ? 'Publishing QR…' : 'Publish new QR now',
+                                loading: replacingQr,
+                                onPressed: replacingQr ? null : _replaceQrOnly,
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            PrimaryButton(
+                              label: savingMethod ? 'Saving…' : (_editingMethodId == null ? 'Save Alipay method' : 'Save account details'),
+                              loading: savingMethod,
+                              onPressed: savingMethod ? null : _saveAlipayMethod,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Instructions for buyers', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _instructionsController,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'Main instructions',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _receiveInstructionsController,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: const InputDecoration(
+                                labelText: 'On payment step',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            PrimaryButton(label: 'Save instructions', onPressed: _saveInstructions),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton(
+                      onPressed: () => context.push('/sell-rmb'),
+                      child: const Text('View pending sell requests'),
+                    ),
                   ],
                 ),
     );
