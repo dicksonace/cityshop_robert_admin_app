@@ -587,16 +587,93 @@ class ChinaSettingsScreen extends StatefulWidget {
 
 class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
   bool loading = true;
+  bool publishing = false;
   String? error;
   Map<String, dynamic> data = {};
+  final _rmbPerGhsController = TextEditingController();
+  final _ghsPerRmbController = TextEditingController();
+  bool _syncingRates = false;
 
   @override
   void initState() {
     super.initState();
+    _rmbPerGhsController.addListener(_onRmbPerGhsChanged);
+    _ghsPerRmbController.addListener(_onGhsPerRmbChanged);
     _load();
   }
 
+  @override
+  void dispose() {
+    _rmbPerGhsController.removeListener(_onRmbPerGhsChanged);
+    _ghsPerRmbController.removeListener(_onGhsPerRmbChanged);
+    _rmbPerGhsController.dispose();
+    _ghsPerRmbController.dispose();
+    super.dispose();
+  }
+
+  String _formatRate(double value) {
+    if (value <= 0) return '';
+    return value.toStringAsFixed(3);
+  }
+
+  void _applyRatesFromPayload(Map<String, dynamic> rate) {
+    _syncingRates = true;
+    final rmbPerGhs = asDouble(rate['rmb_per_ghs']);
+    final ghsPerRmb = asDouble(rate['ghs_per_rmb']);
+    if (rmbPerGhs > 0) {
+      _rmbPerGhsController.text = _formatRate(rmbPerGhs);
+      _ghsPerRmbController.text = ghsPerRmb > 0 ? _formatRate(ghsPerRmb) : _formatRate(1 / rmbPerGhs);
+    } else if (ghsPerRmb > 0) {
+      _ghsPerRmbController.text = _formatRate(ghsPerRmb);
+      _rmbPerGhsController.text = _formatRate(1 / ghsPerRmb);
+    } else {
+      _rmbPerGhsController.text = '0.559';
+      _ghsPerRmbController.text = '1.789';
+    }
+    _syncingRates = false;
+  }
+
+  void _onRmbPerGhsChanged() {
+    if (_syncingRates) return;
+    final cleaned = _rmbPerGhsController.text.replaceAll(RegExp(r'[^\d.]'), '');
+    if (cleaned != _rmbPerGhsController.text) {
+      _syncingRates = true;
+      _rmbPerGhsController.value = TextEditingValue(
+        text: cleaned,
+        selection: TextSelection.collapsed(offset: cleaned.length),
+      );
+      _syncingRates = false;
+    }
+    final value = double.tryParse(cleaned);
+    if (value == null || value <= 0) return;
+    _syncingRates = true;
+    _ghsPerRmbController.text = _formatRate(1 / value);
+    _syncingRates = false;
+  }
+
+  void _onGhsPerRmbChanged() {
+    if (_syncingRates) return;
+    final cleaned = _ghsPerRmbController.text.replaceAll(RegExp(r'[^\d.]'), '');
+    if (cleaned != _ghsPerRmbController.text) {
+      _syncingRates = true;
+      _ghsPerRmbController.value = TextEditingValue(
+        text: cleaned,
+        selection: TextSelection.collapsed(offset: cleaned.length),
+      );
+      _syncingRates = false;
+    }
+    final value = double.tryParse(cleaned);
+    if (value == null || value <= 0) return;
+    _syncingRates = true;
+    _rmbPerGhsController.text = _formatRate(1 / value);
+    _syncingRates = false;
+  }
+
   Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
       final result = await context.read<AdminStore>().getJson('/admin/china-transfers/settings');
       if (!mounted) return;
@@ -604,6 +681,7 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
         data = result;
         loading = false;
       });
+      _applyRatesFromPayload(asMap(result['current_rate']));
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -613,13 +691,89 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
     }
   }
 
+  Future<void> _publishRate() async {
+    final rmb = _rmbPerGhsController.text.trim();
+    final parsed = double.tryParse(rmb);
+    if (parsed == null || parsed <= 0) {
+      showSnack(context, 'Enter a valid GHS to RMB rate (e.g. 0.558).', error: true);
+      return;
+    }
+    setState(() => publishing = true);
+    try {
+      final rate = asMap(data['current_rate']);
+      await context.read<AdminStore>().postJson('/admin/china-transfers/rates', data: {
+        'rmb_per_ghs': rmb,
+        'fee_mode': rate['fee_mode'] ?? 'percent',
+        'fee_value': rate['fee_value'] ?? 0,
+        'min_ghs': rate['min_ghs'] ?? 50,
+        'max_ghs': rate['max_ghs'] ?? 50000,
+        if (rate['daily_max_ghs'] != null) 'daily_max_ghs': rate['daily_max_ghs'],
+        if (rate['monthly_max_ghs'] != null) 'monthly_max_ghs': rate['monthly_max_ghs'],
+        if (rate['max_per_day'] != null) 'max_per_day': rate['max_per_day'],
+        if (rate['approval_above_ghs'] != null) 'approval_above_ghs': rate['approval_above_ghs'],
+      });
+      if (!mounted) return;
+      showSnack(context, 'Rate published.');
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => publishing = false);
+    }
+  }
+
+  Widget _rateField({
+    required String label,
+    required String unitLeft,
+    required String unitRight,
+    required TextEditingController controller,
+    required String helper,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Text('1', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+            const SizedBox(width: 8),
+            Text(unitLeft, style: const TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(width: 8),
+            const Text('=', style: TextStyle(color: Colors.black54, fontSize: 18)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(unitRight, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(helper, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = asMap(data['settings']);
     final rate = asMap(data['current_rate']);
     final enabled = settings['enabled'] == true;
+    final liveRmb = asDouble(rate['rmb_per_ghs']);
+    final liveGhs = asDouble(rate['ghs_per_rmb']);
     return Scaffold(
-      appBar: AppBar(title: const Text('Buy RMB settings')),
+      appBar: AppBar(title: const Text('System Settings')),
       body: loading
           ? const FullPageLoader()
           : error != null
@@ -628,6 +782,7 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
                       title: const Text('Live for buyers'),
                       subtitle: const Text('Alipay only in China'),
                       value: enabled,
@@ -644,18 +799,76 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                         }
                       },
                     ),
-                    Text(() {
-                      final rmb = rate['rmb_per_ghs'];
-                      final ghs = double.tryParse('${rate['ghs_per_rmb'] ?? ''}');
-                      final rmbPerGhs = rmb is num
-                          ? rmb.toDouble()
-                          : (ghs != null && ghs > 0 ? 1 / ghs : null);
-                      if (rmbPerGhs == null || rmbPerGhs <= 0) {
-                        return 'Current rate: not set';
-                      }
-                      final example = (100 * rmbPerGhs).toStringAsFixed(2);
-                      return 'Buyers see: 1 GHS = ${rmbPerGhs.toStringAsFixed(4)} RMB\nExample: GH₵100 → ¥$example';
-                    }()),
+                    const SizedBox(height: 8),
+                    Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.indigo.shade50,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text('⇄', style: TextStyle(fontSize: 22, color: Colors.indigo.shade600)),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Conversion Rates', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                                      Text('GHS ⇄ RMB', style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w700)),
+                                      if (liveRmb > 0) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Live: 1 GHS = ${_formatRate(liveRmb)} RMB · 1 RMB = ${_formatRate(liveGhs)} GHS',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            _rateField(
+                              label: 'GHS to RMB Rate',
+                              unitLeft: 'GHS',
+                              unitRight: 'RMB',
+                              controller: _rmbPerGhsController,
+                              helper: 'Shown to buyers with 3 decimals (e.g., 0.558, 0.565, 0.580)',
+                            ),
+                            const SizedBox(height: 20),
+                            _rateField(
+                              label: 'RMB to GHS Rate',
+                              unitLeft: 'RMB',
+                              unitRight: 'GHS',
+                              controller: _ghsPerRmbController,
+                              helper: 'Synced from RMB rate — 3 decimals (e.g., 1.789, 1.770, 2.300)',
+                            ),
+                            const SizedBox(height: 16),
+                            PrimaryButton(
+                              label: publishing ? 'Publishing…' : 'Publish rate',
+                              loading: publishing,
+                              onPressed: publishing ? null : _publishRate,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'Hours: ${settings['transfer_open_time'] ?? '04:30'} – ${settings['transfer_close_time'] ?? '17:00'}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
@@ -689,34 +902,6 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                           });
                           if (!context.mounted) return;
                           showSnack(context, 'Transfer hours saved.');
-                          await _load();
-                        } on ApiException catch (e) {
-                          if (!context.mounted) return;
-                          showSnack(context, e.message, error: true);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    PrimaryButton(
-                      label: 'Publish new rate',
-                      onPressed: () async {
-                        final rmb = await promptText(
-                          context,
-                          title: 'GHS to RMB Rate',
-                          label: '1 GHS = ? RMB (e.g. 0.559)',
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        );
-                        if (rmb == null || !context.mounted) return;
-                        try {
-                          await context.read<AdminStore>().postJson('/admin/china-transfers/rates', data: {
-                            'rmb_per_ghs': rmb,
-                            'fee_mode': 'percent',
-                            'fee_value': 0,
-                            'min_ghs': 50,
-                            'max_ghs': 50000,
-                          });
-                          if (!context.mounted) return;
-                          showSnack(context, 'Rate published.');
                           await _load();
                         } on ApiException catch (e) {
                           if (!context.mounted) return;
