@@ -48,8 +48,9 @@ class SellRmbScreen extends StatelessWidget {
       path: '/admin/sell-rmb',
       autoRefreshInterval: const Duration(seconds: 8),
       filterLabelFor: transferStatusFilterLabel,
-      filters: const ['open', 'submitted', 'rmb_verification', 'payout_processing', 'completed', 'all'],
+      filters: const ['open', 'submitted', 'payout_processing', 'paid', 'completed', 'all'],
       searchHint: 'Search reference or buyer',
+      listHeader: (meta) => meta == null ? null : _TransferRmbStatsBar(meta: meta),
       itemBuilder: (item, _) => _TransferTile(
         item: item,
         onTap: () => context.push('/sell-rmb/${item['id']}'),
@@ -149,9 +150,12 @@ class _TransferTile extends StatelessWidget {
     final reference = str(item['reference'], '#${item['id']}');
     final buyer = str(user['name'], 'Buyer');
     final status = str(item['status_label'], str(item['status']));
+    final isSell = str(item['flow']) == 'sell_rmb';
     final amount = quote.isEmpty
         ? ''
-        : str(asMap(quote['breakdown'])['total'], money.format(asDouble(quote['total_payable_ghs'])));
+        : isSell
+            ? '¥${asDouble(quote['rmb_amount']).toStringAsFixed(0)}'
+            : str(asMap(quote['breakdown'])['total'], money.format(asDouble(quote['total_payable_ghs'])));
 
     return Material(
       color: Colors.white,
@@ -239,6 +243,51 @@ List<(String, String, bool)> _buyRmbActions(Map<String, dynamic> item) {
   ];
 }
 
+List<(String, String, bool)> _sellRmbActions(Map<String, dynamic> item) {
+  final status = str(item['status']);
+  if (['completed', 'cancelled', 'rejected', 'failed'].contains(status)) {
+    return [];
+  }
+  if (status == 'paid') {
+    return [
+      ('complete', 'Complete', false),
+      ('fail', 'Fail', false),
+    ];
+  }
+  if (item['can_mark_paid'] == true) {
+    return [
+      ('reject', 'Reject', false),
+      ('fail', 'Fail', false),
+      if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
+    ];
+  }
+  if (status == 'submitted') {
+    return [
+      ('verify', 'Start verification', false),
+      ('reject', 'Reject', false),
+      if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
+    ];
+  }
+  if (status == 'rmb_verification') {
+    return [
+      ('received', 'RMB received', false),
+      ('reject', 'Reject', false),
+      ('fail', 'Fail', false),
+    ];
+  }
+  if (status == 'rmb_received') {
+    return [
+      ('process', 'Start payout', false),
+      ('fail', 'Fail', false),
+    ];
+  }
+  return [
+    ('reject', 'Reject', false),
+    ('fail', 'Fail', false),
+    if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
+  ];
+}
+
 class SellRmbDetailScreen extends StatelessWidget {
   const SellRmbDetailScreen({super.key, required this.id});
   final int id;
@@ -249,16 +298,8 @@ class SellRmbDetailScreen extends StatelessWidget {
       id: id,
       loadPath: '/admin/sell-rmb/$id',
       title: 'Sell RMB',
-      actions: const [
-        ('verify', 'Start verification', false),
-        ('received', 'RMB received', false),
-        ('process', 'Start payout', false),
-        ('paid', 'Mark paid', true),
-        ('complete', 'Complete', false),
-        ('reject', 'Reject', false),
-        ('fail', 'Fail', false),
-        ('cancel', 'Cancel', false),
-      ],
+      actionsBuilder: _sellRmbActions,
+      actions: const [],
     );
   }
 }
@@ -270,6 +311,8 @@ bool _adminTransferIsTerminal(String? status) {
     'payment_rejected',
     'transfer_failed',
     'refunded',
+    'rejected',
+    'failed',
   ].contains(status);
 }
 
@@ -457,6 +500,43 @@ class _TransferDetailState extends State<_TransferDetail> {
     }
   }
 
+  Future<void> _submitPayoutProof() async {
+    final path = pendingProofPath;
+    if (path == null) {
+      showSnack(context, 'Add a payout proof screenshot first.', error: true);
+      return;
+    }
+    if (submittingProof) return;
+
+    final quote = asMap(item['quote']);
+    var payout = asDouble(quote['payout_amount']);
+    if (payout <= 0) payout = asDouble(quote['ghs_payout']);
+    if (payout <= 0) payout = asDouble(quote['usd_payout']);
+    if (payout <= 0) {
+      showSnack(context, 'Missing payout amount on this transfer.', error: true);
+      return;
+    }
+
+    setState(() => submittingProof = true);
+    try {
+      final store = context.read<AdminStore>();
+      final result = await store.postForm(
+        '${widget.loadPath}/paid',
+        {'payout_amount': payout.toStringAsFixed(2)},
+        fileField: 'proof',
+        filePath: path,
+      );
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Payout marked as paid.'));
+      _clearPendingProof();
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => submittingProof = false);
+    }
+  }
+
   Future<void> _run(String action, bool needsProof) async {
     final store = context.read<AdminStore>();
     final base = widget.loadPath;
@@ -557,6 +637,10 @@ class _TransferDetailState extends State<_TransferDetail> {
     final paymentProof = str(item['payment_proof_url']);
     final proofs = asMaps(item['proofs']);
     final canUploadProofAndComplete = item['can_upload_proof_and_complete'] == true;
+    final canMarkPayoutProof = item['can_mark_paid'] == true;
+    final isSell = str(item['flow']) == 'sell_rmb';
+    final receiveMethod = asMap(item['receive_method']);
+    final receiveQr = str(receiveMethod['qr_url']);
     final actions = widget.actionsBuilder?.call(item) ?? widget.actions;
     final status = str(item['status']);
     final terminal = _adminTransferIsTerminal(status);
@@ -630,11 +714,34 @@ class _TransferDetailState extends State<_TransferDetail> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (str(item['funding_source_label']).isNotEmpty)
+                          if (isSell) ...[
+                            const Text(
+                              'RMB received from buyer',
+                              style: TextStyle(color: AppColors.emerald, fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              str(breakdown['rmb'], '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}'),
+                              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Payout: ${str(breakdown['ghs_payout'], money.format(asDouble(quote['ghs_payout'])))}',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
+                            ),
+                            if (str(breakdown['rate']).isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                str(breakdown['rate']),
+                                style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                              ),
+                            ],
+                          ] else if (str(item['funding_source_label']).isNotEmpty)
                             Text(
                               str(item['funding_source_label']),
                               style: const TextStyle(color: AppColors.emerald, fontWeight: FontWeight.w800),
                             ),
+                          if (!isSell) ...[
                           const SizedBox(height: 8),
                           if (funding == 'rmb_wallet')
                             Text(
@@ -659,9 +766,57 @@ class _TransferDetailState extends State<_TransferDetail> {
                               style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                             ),
                           ],
+                          ],
                         ],
                       ),
                     ),
+                    if (isSell && receiveQr.isNotEmpty)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.qr_code_2_rounded, color: AppColors.emerald),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    str(receiveMethod['name'], 'CityShop Alipay'),
+                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Buyer sends RMB to this Alipay QR.',
+                              style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                            ),
+                            const SizedBox(height: 12),
+                            GestureDetector(
+                              onTap: () => _openTransferImage(context, receiveQr),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  color: const Color(0xFFF8FAFC),
+                                  padding: const EdgeInsets.all(16),
+                                  child: AspectRatio(
+                                    aspectRatio: 1,
+                                    child: CachedNetworkImage(
+                                      imageUrl: ApiConfig.resolveMediaUrl(receiveQr),
+                                      fit: BoxFit.contain,
+                                      placeholder: (_, _) => const Center(child: CircularProgressIndicator()),
+                                      errorWidget: (_, _, _) => const Center(
+                                        child: Icon(Icons.broken_image_outlined, size: 48),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     if (qrFields.isNotEmpty)
                       ...qrFields.map((field) {
                         final url = str(field['file_url']);
@@ -785,7 +940,7 @@ class _TransferDetailState extends State<_TransferDetail> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('RMB sent proof', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            Text(isSell ? 'Payout proof' : 'RMB sent proof', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                             const SizedBox(height: 8),
                             ...proofs.map((proof) {
                               final url = str(proof['url']);
@@ -983,7 +1138,105 @@ class _TransferDetailState extends State<_TransferDetail> {
                           ],
                         ),
                       ),
-                    if (str(item['status']) == 'rmb_sent')
+                    if (canMarkPayoutProof)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.emerald.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(Icons.upload_file_rounded, color: AppColors.emerald),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Upload payout proof', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        'Add MoMo/GHS payout screenshot, review it, then mark paid.',
+                                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            if (pendingProofPath == null)
+                              OutlinedButton.icon(
+                                onPressed: _pickProofForComplete,
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                ),
+                                icon: const Icon(Icons.add_photo_alternate_outlined, color: AppColors.emerald),
+                                label: const Text(
+                                  'Add payout proof',
+                                  style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
+                                ),
+                              )
+                            else ...[
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFECFDF5),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFF6EE7B7)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    GestureDetector(
+                                      onTap: () => _openLocalProof(pendingProofPath!),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Container(
+                                          color: Colors.white,
+                                          padding: const EdgeInsets.all(8),
+                                          child: AspectRatio(
+                                            aspectRatio: 3 / 4,
+                                            child: Image.file(
+                                              File(pendingProofPath!),
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    FilledButton.icon(
+                                      onPressed: submittingProof ? null : _submitPayoutProof,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: AppColors.emerald,
+                                        padding: const EdgeInsets.symmetric(vertical: 16),
+                                      ),
+                                      icon: submittingProof
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            )
+                                          : const Icon(Icons.payments_outlined),
+                                      label: Text(submittingProof ? 'Uploading…' : 'Mark paid'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    if (str(item['status']) == 'rmb_sent' || (isSell && str(item['status']) == 'paid'))
                       _TransferCard(
                         child: FilledButton(
                           onPressed: () => _run('complete', false),

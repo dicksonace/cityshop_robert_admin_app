@@ -300,8 +300,8 @@ String transferStatusFilterLabel(String option) {
       return 'Needs action';
     case 'payment_submitted':
       return 'Payment in';
-    case 'rmb_sent':
-      return 'RMB sent';
+    case 'paid':
+      return 'Payout sent';
     case 'all':
       return 'All';
     default:
