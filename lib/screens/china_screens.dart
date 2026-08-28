@@ -86,17 +86,40 @@ class ChinaTransferDetailScreen extends StatelessWidget {
       id: id,
       loadPath: '/admin/china-transfers/$id',
       title: 'Buy RMB',
-      actions: const [
-        ('verify', 'Verify payment', false),
-        ('process', 'Start processing', false),
-        ('sent', 'Mark RMB sent', true),
-        ('complete', 'Complete', false),
-        ('reject', 'Reject', false),
-        ('fail', 'Fail', false),
-        ('cancel', 'Cancel', false),
-      ],
+      actionsBuilder: _buyRmbActions,
+      actions: const [],
     );
   }
+}
+
+List<(String, String, bool)> _buyRmbActions(Map<String, dynamic> item) {
+  final status = str(item['status']);
+  if (['completed', 'cancelled', 'payment_rejected', 'transfer_failed'].contains(status)) {
+    return [];
+  }
+  if (status == 'rmb_sent') {
+    return [
+      ('complete', 'Complete', false),
+      ('fail', 'Fail', false),
+    ];
+  }
+  if (item['can_upload_proof_and_complete'] == true ||
+      ['processing', 'payment_submitted', 'payment_verification'].contains(status)) {
+    return [
+      ('reject', 'Reject', false),
+      ('fail', 'Fail', false),
+      if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
+    ];
+  }
+  if (status == 'pending_payment') {
+    return [
+      if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
+    ];
+  }
+  return [
+    ('reject', 'Reject', false),
+    ('fail', 'Fail', false),
+  ];
 }
 
 class SellRmbDetailScreen extends StatelessWidget {
@@ -129,12 +152,14 @@ class _TransferDetail extends StatefulWidget {
     required this.loadPath,
     required this.title,
     required this.actions,
+    this.actionsBuilder,
   });
 
   final int id;
   final String loadPath;
   final String title;
   final List<(String, String, bool)> actions;
+  final List<(String, String, bool)> Function(Map<String, dynamic> item)? actionsBuilder;
 
   @override
   State<_TransferDetail> createState() => _TransferDetailState();
@@ -179,7 +204,7 @@ class _TransferDetailState extends State<_TransferDetail> {
         if (file == null || !mounted) return;
         final quote = asMap(item['quote']);
         final String amountStr;
-        if (action == 'sent') {
+        if (action == 'sent' || action == 'complete-with-proof') {
           final rmb = asDouble(quote['rmb_amount']);
           if (rmb <= 0) {
             showSnack(context, 'Missing RMB amount on this transfer.', error: true);
@@ -196,10 +221,14 @@ class _TransferDetailState extends State<_TransferDetail> {
           }
           amountStr = payout.toStringAsFixed(2);
         }
+        final endpoint = action == 'complete-with-proof' ? '$base/complete-with-proof' : '$base/$action';
         result = await store.postForm(
-          '$base/$action',
+          endpoint,
           {
-            if (action == 'sent') 'rmb_sent_amount': amountStr else 'payout_amount': amountStr,
+            if (action == 'sent' || action == 'complete-with-proof')
+              'rmb_sent_amount': amountStr
+            else
+              'payout_amount': amountStr,
           },
           fileField: 'proof',
           filePath: file.path,
@@ -264,6 +293,8 @@ class _TransferDetailState extends State<_TransferDetail> {
     final funding = str(item['funding_source']);
     final paymentProof = str(item['payment_proof_url']);
     final proofs = asMaps(item['proofs']);
+    final canUploadProofAndComplete = item['can_upload_proof_and_complete'] == true;
+    final actions = widget.actionsBuilder?.call(item) ?? widget.actions;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -472,31 +503,89 @@ class _TransferDetailState extends State<_TransferDetail> {
                           ],
                         ),
                       ),
-                    _TransferCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text('Actions', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                          const SizedBox(height: 10),
-                          ...widget.actions.map((action) {
-                            final destructive = action.$1 == 'reject' || action.$1 == 'fail' || action.$1 == 'cancel';
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: OutlinedButton(
-                                onPressed: () => _run(action.$1, action.$3),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: destructive ? AppColors.danger : AppColors.textPrimary,
-                                  side: BorderSide(color: destructive ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB)),
-                                  backgroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                    if (canUploadProofAndComplete)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.emerald.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(Icons.upload_file_rounded, color: AppColors.emerald),
                                 ),
-                                child: Text(action.$2),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Upload proof & complete', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        'Pick your Alipay screenshot. We finish the transfer automatically.',
+                                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            FilledButton.icon(
+                              onPressed: () => _run('complete-with-proof', true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.emerald,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
-                            );
-                          }),
-                        ],
+                              icon: const Icon(Icons.check_circle_outline),
+                              label: const Text('Upload proof & complete'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                    if (str(item['status']) == 'rmb_sent')
+                      _TransferCard(
+                        child: FilledButton(
+                          onPressed: () => _run('complete', false),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.emerald,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          child: const Text('Complete'),
+                        ),
+                      ),
+                    if (actions.isNotEmpty)
+                      _TransferCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('Other actions', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            const SizedBox(height: 10),
+                            ...actions.map((action) {
+                              final destructive = action.$1 == 'reject' || action.$1 == 'fail' || action.$1 == 'cancel';
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: OutlinedButton(
+                                  onPressed: () => _run(action.$1, action.$3),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: destructive ? AppColors.danger : AppColors.textPrimary,
+                                    side: BorderSide(color: destructive ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB)),
+                                    backgroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                  ),
+                                  child: Text(action.$2),
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
     );
