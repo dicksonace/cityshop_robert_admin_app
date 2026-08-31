@@ -174,7 +174,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
         result = await store.postJson('/admin/sell-rmb/$id/approve-payout');
       }
       if (!mounted) return;
-      showSnack(context, str(result['message'], 'MoMo payout approved.'));
+      showSnack(context, str(result['message'], 'Sell completed.'));
       setState(() {
         _approveTarget = null;
         _approveProofPath = null;
@@ -371,7 +371,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                       await _showApproveModal();
                     },
                     icon: const Icon(Icons.check_rounded, size: 18),
-                    label: const Text('Approve'),
+                    label: const Text('Complete'),
                   ),
                 ),
               ],
@@ -433,7 +433,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                   const SizedBox(height: 12),
                   Text('RMB received: ¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFB91C1C))),
                   const SizedBox(height: 8),
-                  Text('Next: send ${_formatPayout(quote)} to MoMo, then Approve.'),
+                  Text('Next: send ${_formatPayout(quote)} to MoMo, then Complete.'),
                   if (str(payout['number']).isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -506,9 +506,9 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                   child: const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Approve RMB Sell', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
+                      Text('Complete RMB Sell', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
                       SizedBox(height: 4),
-                      Text('Confirm MoMo payout sent (does not add to wallet).', style: TextStyle(color: Color(0xFFDCFCE7), fontSize: 12)),
+                      Text('Confirm MoMo payout sent (proof optional).', style: TextStyle(color: Color(0xFFDCFCE7), fontSize: 12)),
                     ],
                   ),
                 ),
@@ -560,7 +560,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                                       await _confirmApprove();
                                     },
                               icon: const Icon(Icons.check_rounded),
-                              label: const Text('Approve'),
+                              label: const Text('Complete'),
                             ),
                           ),
                         ],
@@ -671,7 +671,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                           border: Border.all(color: const Color(0xFF93C5FD)),
                         ),
                         child: const Text(
-                          'Workflow: Verify Alipay proof → Process → send MoMo → Approve. Payout does not add to in-app GHS wallet.',
+                          'Workflow: Verify Alipay proof → Process → send MoMo → Complete. MoMo proof is optional.',
                           style: TextStyle(fontSize: 12, color: Color(0xFF1E3A8A)),
                         ),
                       ),
@@ -925,12 +925,7 @@ List<(String, String, bool)> _sellRmbActions(Map<String, dynamic> item) {
   if (['completed', 'cancelled', 'rejected', 'failed'].contains(status)) {
     return [];
   }
-  if (status == 'paid') {
-    return [
-      ('complete', 'Complete', false),
-      ('fail', 'Fail', false),
-    ];
-  }
+  // Two-click admin flow: Process → Complete (MoMo proof optional).
   if (['submitted', 'rmb_verification'].contains(status)) {
     return [
       ('mark-processing', 'Process', false),
@@ -938,9 +933,9 @@ List<(String, String, bool)> _sellRmbActions(Map<String, dynamic> item) {
       if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
     ];
   }
-  if (['rmb_received', 'payout_processing'].contains(status)) {
+  if (['rmb_received', 'payout_processing', 'paid'].contains(status)) {
     return [
-      ('approve-payout', 'Approve payout', false),
+      ('approve-payout', 'Complete', false),
       ('reject', 'Reject', false),
       ('fail', 'Fail', false),
     ];
@@ -1301,8 +1296,9 @@ class _TransferDetailState extends State<_TransferDetail> {
     final paymentProof = str(item['payment_proof_url']);
     final proofs = asMaps(item['proofs']);
     final canUploadProofAndComplete = item['can_upload_proof_and_complete'] == true;
-    final canMarkPayoutProof = item['can_mark_paid'] == true;
     final isSell = str(item['flow']) == 'sell_rmb';
+    // Sell RMB: MoMo proof is optional — use Process → Complete, not forced upload.
+    final canMarkPayoutProof = !isSell && item['can_mark_paid'] == true;
     final receiveMethod = asMap(item['receive_method']);
     final receiveQr = str(receiveMethod['qr_url']);
     final actions = widget.actionsBuilder?.call(item) ?? widget.actions;
@@ -1900,7 +1896,7 @@ class _TransferDetailState extends State<_TransferDetail> {
                           ],
                         ),
                       ),
-                    if (str(item['status']) == 'rmb_sent' || (isSell && str(item['status']) == 'paid'))
+                    if (str(item['status']) == 'rmb_sent')
                       _TransferCard(
                         child: FilledButton(
                           onPressed: () => _run('complete', false),
@@ -1916,7 +1912,10 @@ class _TransferDetailState extends State<_TransferDetail> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Text('Other actions', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                            Text(
+                              isSell ? 'Actions' : 'Other actions',
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                            ),
                             const SizedBox(height: 10),
                             ...actions.map((action) {
                               final destructive = action.$1 == 'reject' || action.$1 == 'fail' || action.$1 == 'cancel';
