@@ -1659,8 +1659,8 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Hours: ${settings['transfer_open_time'] ?? '04:30'} – ${settings['transfer_close_time'] ?? '17:00'}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      'Processing window (info only). Use Live/Pause to stop transfers — buyers are never auto-closed.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                     ),
                     const SizedBox(height: 8),
                     PrimaryButton(
