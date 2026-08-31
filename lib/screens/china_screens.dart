@@ -2001,11 +2001,11 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
                           Text(
                             open
                                 ? 'Buyers can sell RMB for GHS on the app and website.'
-                                : 'Complete all steps below. Buyers see “Paused” until everything is ready.',
+                                : 'Complete all steps below. “Paused” only shows when you turn Live off.',
                             style: const TextStyle(fontSize: 13, height: 1.35),
                           ),
                           const SizedBox(height: 12),
-                          _checklistRow('Live toggle on', readiness['live_toggle'] == true),
+                          _checklistRow('Live toggle on', readiness['live'] == true || readiness['live_toggle'] == true),
                           _checklistRow('Buying rate published', readiness['rate_published'] == true),
                           _checklistRow('Alipay QR uploaded', readiness['alipay_qr'] == true),
                         ],

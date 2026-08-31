@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
@@ -1367,22 +1368,451 @@ class _AnnouncementTileState extends State<_AnnouncementTile> with SingleTickerP
   }
 }
 
-class TransactionsScreen extends StatelessWidget {
+class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
 
   @override
+  State<TransactionsScreen> createState() => _TransactionsScreenState();
+}
+
+class _TransactionsScreenState extends State<TransactionsScreen> {
+  bool loading = true;
+  bool loadingMore = false;
+  String? error;
+  String search = '';
+  String typeFilter = 'all';
+  List<Map<String, dynamic>> items = [];
+  int currentPage = 1;
+  int lastPage = 1;
+  int total = 0;
+  final _search = TextEditingController();
+
+  static const _typeFilters = <(String, String)>[
+    ('all', 'All'),
+    ('transfer_in', 'Received'),
+    ('transfer_out', 'Sent'),
+    ('order_payment', 'Orders'),
+    ('fund_added', 'Top-ups'),
+    ('withdrawal', 'Withdrawals'),
+    ('sale_pending', 'Sales'),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load(reset: true);
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool reset = false, bool silent = false}) async {
+    if (reset) {
+      if (!silent) {
+        setState(() {
+          loading = true;
+          error = null;
+        });
+      }
+      currentPage = 1;
+    } else {
+      setState(() => loadingMore = true);
+    }
+    try {
+      final page = reset ? 1 : currentPage + 1;
+      final data = await context.read<AdminStore>().getJson('/admin/transactions', query: {
+        'page': page,
+        'per_page': 25,
+        if (search.isNotEmpty) 'search': search,
+        if (typeFilter != 'all') 'type': typeFilter,
+      });
+      if (!mounted) return;
+      final batch = asMaps(data['data']);
+      final meta = asMap(data['meta']);
+      setState(() {
+        if (reset) {
+          items = batch;
+        } else {
+          items = [...items, ...batch];
+        }
+        currentPage = asInt(meta['current_page']);
+        if (currentPage == 0) currentPage = page;
+        lastPage = asInt(meta['last_page']);
+        if (lastPage == 0) lastPage = 1;
+        total = asInt(meta['total']);
+        if (total == 0) total = items.length;
+        loading = false;
+        loadingMore = false;
+        error = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (!silent) error = e.message;
+        loading = false;
+        loadingMore = false;
+      });
+    }
+  }
+
+  void _submitSearch() {
+    search = _search.text.trim();
+    _load(reset: true);
+  }
+
+  String _formatAmount(double amount) {
+    final formatted = money.format(amount.abs());
+    if (amount < 0) return '-$formatted';
+    return formatted;
+  }
+
+  void _openDetail(Map<String, dynamic> item) {
+    final user = asMap(item['user']);
+    final amount = asDouble(item['amount']);
+    final credit = amount >= 0;
+    final createdAt = str(item['created_at']);
+    String when = createdAt;
+    if (createdAt.isNotEmpty) {
+      try {
+        when = DateFormat('d MMM yyyy, h:mm a').format(DateTime.parse(createdAt).toLocal());
+      } catch (_) {}
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  str(item['type_label'], str(item['type'])),
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _formatAmount(amount),
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    color: credit ? const Color(0xFF111827) : AppColors.danger,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _DetailRow(label: 'User', value: str(user['name'], '—')),
+                if (str(user['mobile']).isNotEmpty) _DetailRow(label: 'Phone', value: str(user['mobile'])),
+                if (str(user['role']).isNotEmpty) _DetailRow(label: 'Role', value: str(user['role'])),
+                if (str(item['description']).isNotEmpty) _DetailRow(label: 'Details', value: str(item['description'])),
+                if (str(item['reference']).isNotEmpty)
+                  _DetailRow(
+                    label: 'Reference',
+                    value: str(item['reference']),
+                    onCopy: () {
+                      Clipboard.setData(ClipboardData(text: str(item['reference'])));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Reference copied')),
+                      );
+                    },
+                  ),
+                if (when.isNotEmpty) _DetailRow(label: 'When', value: when),
+                const SizedBox(height: 8),
+                if (user['id'] != null)
+                  OutlinedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      final role = str(user['role']);
+                      if (role == 'seller') {
+                        context.push('/sellers/${user['id']}');
+                      } else {
+                        context.push('/buyers/${user['id']}');
+                      }
+                    },
+                    child: const Text('Open user profile'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AdminResourceList(
-      title: 'Transactions',
-      path: '/admin/transactions',
-      searchHint: 'Search name or reference',
-      itemBuilder: (item, _) => Material(
-        color: Colors.white,
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/more');
+            }
+          },
+        ),
+        title: const Text('Transactions'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: loading ? null : () => _load(reset: true),
+          ),
+        ],
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: TextField(
+              controller: _search,
+              decoration: InputDecoration(
+                hintText: 'Search name or reference',
+                hintStyle: const TextStyle(color: AppColors.textMuted),
+                prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                suffixIcon: IconButton(
+                  onPressed: _submitSearch,
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              ),
+              onSubmitted: (_) => _submitSearch(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _typeFilters.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final (value, label) = _typeFilters[i];
+                final selected = typeFilter == value;
+                return FilterChip(
+                  label: Text(label),
+                  selected: selected,
+                  showCheckmark: false,
+                  labelStyle: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    color: selected ? Colors.white : AppColors.textSecondary,
+                  ),
+                  selectedColor: AppColors.accent,
+                  backgroundColor: Colors.white,
+                  side: BorderSide(color: selected ? AppColors.accent : const Color(0xFFE5E7EB)),
+                  onSelected: (_) {
+                    setState(() => typeFilter = value);
+                    _load(reset: true);
+                  },
+                );
+              },
+            ),
+          ),
+          if (!loading && error == null && total > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Text(
+                '$total transaction${total == 1 ? '' : 's'}',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textMuted),
+              ),
+            ),
+          Expanded(
+            child: loading
+                ? const FullPageLoader()
+                : error != null
+                    ? ErrorRetry(message: error!, onRetry: () => _load(reset: true))
+                    : RefreshIndicator(
+                        onRefresh: () => _load(reset: true),
+                        child: items.isEmpty
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: const [
+                                  SizedBox(height: 80),
+                                  EmptyState('No transactions found.'),
+                                ],
+                              )
+                            : ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                                itemCount: items.length + (currentPage < lastPage ? 1 : 0),
+                                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                                itemBuilder: (context, index) {
+                                  if (index >= items.length) {
+                                    return TextButton(
+                                      onPressed: loadingMore ? null : () => _load(),
+                                      child: Text(loadingMore ? 'Loading…' : 'Load more'),
+                                    );
+                                  }
+                                  return _AdminTransactionCard(
+                                    item: items[index],
+                                    formatAmount: _formatAmount,
+                                    onTap: () => _openDetail(items[index]),
+                                  );
+                                },
+                              ),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    this.onCopy,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback? onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.35)),
+          ),
+          if (onCopy != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: onCopy,
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              tooltip: 'Copy',
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminTransactionCard extends StatelessWidget {
+  const _AdminTransactionCard({
+    required this.item,
+    required this.formatAmount,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> item;
+  final String Function(double amount) formatAmount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = asMap(item['user']);
+    final userName = str(user['name']);
+    final description = str(item['description']);
+    final reference = str(item['reference']);
+    final typeLabel = str(item['type_label'], str(item['type']));
+    final amount = asDouble(item['amount']);
+    final credit = amount >= 0;
+
+    final detailParts = <String>[
+      if (userName.isNotEmpty) userName,
+      if (description.isNotEmpty) description,
+      if (reference.isNotEmpty) reference,
+    ];
+    final detailLine = detailParts.join(' · ');
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        child: ListTile(
-          title: Text(str(item['type_label'], str(item['type']))),
-          subtitle: Text('${str(asMap(item['user'])['name'])} · ${str(item['description'])}'),
-          trailing: Text(money.format(asDouble(item['amount']))),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      typeLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, height: 1.25),
+                    ),
+                    if (detailLine.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        detailLine,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          height: 1.35,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                formatAmount(amount),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  color: credit ? const Color(0xFF111827) : AppColors.danger,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
