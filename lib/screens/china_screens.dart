@@ -59,6 +59,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
   String _rejectReason = '';
   String? _approveProofPath;
   String? _approveProofName;
+  int? _approveProofBytes;
   bool _busy = false;
 
   @override
@@ -126,11 +127,65 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
     return '\$${asDouble(quote['usd_payout']).toStringAsFixed(2)}';
   }
 
-  String _momoLine(Map<String, dynamic> account) {
-    final network = str(account['network']);
-    final number = str(account['number']);
-    if (number.isEmpty) return 'Not provided';
-    return [network, number].where((part) => part.isNotEmpty).join(' · ');
+  Widget _momoPayoutBlock(
+    BuildContext context,
+    Map<String, dynamic> payout, {
+    String title = 'MoMo payout',
+    bool bordered = false,
+  }) {
+    final network = str(payout['network']);
+    final number = str(payout['number']);
+    final name = str(payout['account_name']);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF5),
+        borderRadius: BorderRadius.circular(12),
+        border: bordered ? Border.all(color: const Color(0xFF86EFAC)) : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+          if (network.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(network, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          ],
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  number,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+              FilledButton(
+                onPressed: () => copyText(context, number, label: 'MoMo number copied.'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(72, 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+                child: const Text('COPY', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+              ),
+            ],
+          ),
+          if (name.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(name, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            ),
+        ],
+      ),
+    );
   }
 
   Future<void> _confirmProcess() async {
@@ -154,10 +209,203 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
   Future<void> _pickApproveProof() async {
     final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (file == null || !mounted) return;
+    final bytes = await file.length();
+    if (!mounted) return;
     setState(() {
       _approveProofPath = file.path;
       _approveProofName = file.name;
+      _approveProofBytes = bytes;
     });
+  }
+
+  void _clearApproveProof() {
+    setState(() {
+      _approveProofPath = null;
+      _approveProofName = null;
+      _approveProofBytes = null;
+    });
+  }
+
+  void _openApproveProofPreview(BuildContext context) {
+    final path = _approveProofPath;
+    if (path == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              child: Image.file(
+                File(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => const Center(
+                  child: Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _approveProofUploadCard(BuildContext context, void Function(VoidCallback) setModalState) {
+    final picked = _approveProofPath != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Upload MoMo proof (optional)',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Add MoMo payment screenshot if you want a record. Preview before completing.',
+          style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            color: picked ? const Color(0xFFECFDF5) : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: picked ? const Color(0xFF6EE7B7) : const Color(0xFFD1D5DB),
+              width: picked ? 1.6 : 1.2,
+            ),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: picked
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.check_circle, color: Color(0xFF10B981), size: 28),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _approveProofName ?? 'proof.jpg',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                              ),
+                              if (_approveProofBytes != null)
+                                Text(
+                                  _formatProofFileSize(_approveProofBytes!),
+                                  style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: () async {
+                            await _pickApproveProof();
+                            setModalState(() {});
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: const Text('Change', style: TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                        const SizedBox(width: 6),
+                        Material(
+                          color: const Color(0xFFDC2626),
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              _clearApproveProof();
+                              setModalState(() {});
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(Icons.close, color: Colors.white, size: 16),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () => _openApproveProofPreview(context),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(
+                          File(_approveProofPath!),
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            height: 120,
+                            color: Colors.white,
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.broken_image_outlined, size: 40),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Tap image to view full size',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                )
+              : InkWell(
+                  onTap: () async {
+                    await _pickApproveProof();
+                    setModalState(() {});
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    child: Column(
+                      children: [
+                        Icon(Icons.add_photo_alternate_outlined, size: 40, color: Colors.grey.shade500),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Upload MoMo payment screenshot',
+                          style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF4B5563)),
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: () async {
+                            await _pickApproveProof();
+                            setModalState(() {});
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.emerald,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                          ),
+                          child: const Text('Choose Image', style: TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
   }
 
   Future<void> _confirmApprove() async {
@@ -179,6 +427,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
         _approveTarget = null;
         _approveProofPath = null;
         _approveProofName = null;
+        _approveProofBytes = null;
       });
       await _load();
     } on ApiException catch (e) {
@@ -318,20 +567,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
           ),
           if (str(payout['number']).isNotEmpty) ...[
             const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('MoMo payout', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                  Text(_momoLine(payout), style: const TextStyle(fontWeight: FontWeight.w700)),
-                  if (str(payout['account_name']).isNotEmpty)
-                    Text(str(payout['account_name']), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                ],
-              ),
-            ),
+            _momoPayoutBlock(context, payout),
           ],
           const SizedBox(height: 12),
           Row(
@@ -367,6 +603,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                         _approveTarget = item;
                         _approveProofPath = null;
                         _approveProofName = null;
+                        _approveProofBytes = null;
                       });
                       await _showApproveModal();
                     },
@@ -436,19 +673,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                   Text('Next: send ${_formatPayout(quote)} to MoMo, then Complete.'),
                   if (str(payout['number']).isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF86EFAC))),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Send payout to:', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald)),
-                          Text(_momoLine(payout), style: const TextStyle(fontWeight: FontWeight.w700)),
-                          if (str(payout['account_name']).isNotEmpty) Text(str(payout['account_name'])),
-                        ],
-                      ),
-                    ),
+                    _momoPayoutBlock(ctx, payout, title: 'Send payout to:', bordered: true),
                   ],
                   const SizedBox(height: 16),
                   Row(
@@ -522,29 +747,10 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
                       Text('Confirm you sent ${_formatPayout(quote)} via Mobile Money.'),
                       if (str(payout['number']).isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF86EFAC))),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Send GHS to MoMo:', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald)),
-                              Text(_momoLine(payout)),
-                              if (str(payout['account_name']).isNotEmpty) Text('Name: ${str(payout['account_name'])}'),
-                            ],
-                          ),
-                        ),
+                        _momoPayoutBlock(ctx, payout, title: 'Send GHS to MoMo:', bordered: true),
                       ],
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await _pickApproveProof();
-                          setModalState(() {});
-                        },
-                        icon: const Icon(Icons.upload_file_outlined),
-                        label: Text(_approveProofName ?? 'Upload MoMo proof (optional)'),
-                      ),
+                      const SizedBox(height: 14),
+                      _approveProofUploadCard(ctx, setModalState),
                       const SizedBox(height: 16),
                       Row(
                         children: [
@@ -579,6 +785,7 @@ class _SellRmbScreenState extends State<SellRmbScreen> {
         _approveTarget = null;
         _approveProofPath = null;
         _approveProofName = null;
+        _approveProofBytes = null;
       });
     }
   }
