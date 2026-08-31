@@ -38,22 +38,699 @@ class ChinaTransfersScreen extends StatelessWidget {
   }
 }
 
-class SellRmbScreen extends StatelessWidget {
+class SellRmbScreen extends StatefulWidget {
   const SellRmbScreen({super.key});
 
   @override
+  State<SellRmbScreen> createState() => _SellRmbScreenState();
+}
+
+class _SellRmbScreenState extends State<SellRmbScreen> {
+  bool loading = true;
+  bool silentLoading = false;
+  String? error;
+  List<Map<String, dynamic>> items = [];
+  Map<String, dynamic> dashboard = {};
+  final _search = TextEditingController();
+  Timer? _pollTimer;
+  Map<String, dynamic>? _processTarget;
+  Map<String, dynamic>? _approveTarget;
+  Map<String, dynamic>? _rejectTarget;
+  String _rejectReason = '';
+  String? _approveProofPath;
+  String? _approveProofName;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _load(silent: true));
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    } else {
+      setState(() => silentLoading = true);
+    }
+    try {
+      final q = _search.text.trim();
+      final data = await context.read<AdminStore>().getJson('/admin/sell-rmb', query: {
+        'status': 'open',
+        if (q.isNotEmpty) 'q': q,
+      });
+      if (!mounted) return;
+      setState(() {
+        items = asMaps(data['data']);
+        dashboard = asMap(data['dashboard']);
+        loading = false;
+        silentLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (!silent) error = e.message;
+        loading = false;
+        silentLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> _sectionItems(String section) {
+    return items.where((item) => str(item['admin_queue_section']) == section).toList();
+  }
+
+  bool _canProcess(Map<String, dynamic> item) {
+    return ['submitted', 'rmb_verification'].contains(str(item['status']));
+  }
+
+  bool _canApprove(Map<String, dynamic> item) {
+    return ['rmb_received', 'payout_processing', 'paid'].contains(str(item['status']));
+  }
+
+  String _formatPayout(Map<String, dynamic> quote) {
+    if (str(quote['payout_currency']) == 'ghs') {
+      return money.format(asDouble(quote['ghs_payout']));
+    }
+    return '\$${asDouble(quote['usd_payout']).toStringAsFixed(2)}';
+  }
+
+  String _momoLine(Map<String, dynamic> account) {
+    final network = str(account['network']);
+    final number = str(account['number']);
+    if (number.isEmpty) return 'Not provided';
+    return [network, number].where((part) => part.isNotEmpty).join(' · ');
+  }
+
+  Future<void> _confirmProcess() async {
+    final target = _processTarget;
+    if (target == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final id = target['id'];
+      final result = await context.read<AdminStore>().postJson('/admin/sell-rmb/$id/mark-processing');
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Marked for MoMo payout.'));
+      setState(() => _processTarget = null);
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _pickApproveProof() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file == null || !mounted) return;
+    setState(() {
+      _approveProofPath = file.path;
+      _approveProofName = file.name;
+    });
+  }
+
+  Future<void> _confirmApprove() async {
+    final target = _approveTarget;
+    if (target == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final id = target['id'];
+      final store = context.read<AdminStore>();
+      final Map<String, dynamic> result;
+      if (_approveProofPath != null) {
+        result = await store.postForm('/admin/sell-rmb/$id/approve-payout', {}, fileField: 'proof', filePath: _approveProofPath!);
+      } else {
+        result = await store.postJson('/admin/sell-rmb/$id/approve-payout');
+      }
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'MoMo payout approved.'));
+      setState(() {
+        _approveTarget = null;
+        _approveProofPath = null;
+        _approveProofName = null;
+      });
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmReject() async {
+    final target = _rejectTarget;
+    if (target == null || _rejectReason.trim().isEmpty || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final id = target['id'];
+      final result = await context.read<AdminStore>().postJson('/admin/sell-rmb/$id/reject', data: {'reason': _rejectReason.trim()});
+      if (!mounted) return;
+      showSnack(context, str(result['message'], 'Sell rejected.'));
+      setState(() {
+        _rejectTarget = null;
+        _rejectReason = '';
+      });
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _statsBar() {
+    final awaiting = dashboard['awaiting_review'] ?? 0;
+    final sendMomo = dashboard['send_momo_now'] ?? 0;
+    final openRmb = asDouble(dashboard['open_rmb_total']);
+    final openGhs = asDouble(dashboard['open_ghs_total']);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _SellRmbStatCard(label: 'Awaiting review', value: '$awaiting', bg: const Color(0xFFFEF9C3), fg: const Color(0xFF854D0E))),
+              const SizedBox(width: 8),
+              Expanded(child: _SellRmbStatCard(label: 'Send MoMo', value: '$sendMomo', bg: const Color(0xFFDBEAFE), fg: const Color(0xFF1D4ED8))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _SellRmbStatCard(label: 'Sell RMB (open)', value: '¥${openRmb.toStringAsFixed(2)}', bg: const Color(0xFFFEE2E2), fg: const Color(0xFFB91C1C))),
+              const SizedBox(width: 8),
+              Expanded(child: _SellRmbStatCard(label: 'GHS to pay', value: money.format(openGhs), bg: const Color(0xFFD1FAE5), fg: AppColors.emerald)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title, Color bg, Color fg, IconData icon) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: bg,
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: fg),
+          const SizedBox(width: 8),
+          Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: fg)),
+        ],
+      ),
+    );
+  }
+
+  Widget _sellCard(Map<String, dynamic> item) {
+    final user = asMap(item['user']);
+    final quote = asMap(item['quote']);
+    final payout = asMap(item['payout_account']);
+    final status = str(item['status_label'], str(item['status']));
+    final isSendMomo = str(item['admin_queue_section']) == 'send_momo';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isSendMomo ? const Color(0xFFEFF6FF) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text('#${item['id']}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isSendMomo ? const Color(0xFFDBEAFE) : const Color(0xFFFEF9C3),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isSendMomo ? const Color(0xFF1D4ED8) : const Color(0xFF854D0E))),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(str(user['name'], 'Buyer'), style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    children: [
+                      const Text('RMB', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      Text('¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFB91C1C))),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: const Color(0xFFD1FAE5), borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    children: [
+                      const Text('GHS Payout', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      Text(_formatPayout(quote), style: const TextStyle(fontWeight: FontWeight.w900, color: AppColors.emerald)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (str(payout['number']).isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('MoMo payout', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  Text(_momoLine(payout), style: const TextStyle(fontWeight: FontWeight.w700)),
+                  if (str(payout['account_name']).isNotEmpty)
+                    Text(str(payout['account_name']), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => context.push('/sell-rmb/${item['id']}'),
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('View'),
+                ),
+              ),
+              if (_canProcess(item)) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                    onPressed: () async {
+                      setState(() => _processTarget = item);
+                      await _showProcessModal();
+                    },
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: const Text('Process'),
+                  ),
+                ),
+              ],
+              if (_canApprove(item)) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                    onPressed: () async {
+                      setState(() {
+                        _approveTarget = item;
+                        _approveProofPath = null;
+                        _approveProofName = null;
+                      });
+                      await _showApproveModal();
+                    },
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Approve'),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 8),
+              IconButton.filled(
+                style: IconButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+                onPressed: () async {
+                  setState(() {
+                    _rejectTarget = item;
+                    _rejectReason = '';
+                  });
+                  await _showRejectModal();
+                },
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showProcessModal() async {
+    final target = _processTarget;
+    if (target == null) return;
+    final user = asMap(target['user']);
+    final quote = asMap(target['quote']);
+    final payout = asMap(target['payout_account']);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.all(16),
+        contentPadding: EdgeInsets.zero,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF2563EB)]),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Start Processing', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
+                  SizedBox(height: 4),
+                  Text('Verify Alipay proof, then send MoMo payout.', style: TextStyle(color: Color(0xFFDBEAFE), fontSize: 12)),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Mark sell request from ${str(user['name'])} as Processing?'),
+                  const SizedBox(height: 12),
+                  Text('RMB received: ¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFB91C1C))),
+                  const SizedBox(height: 8),
+                  Text('Next: send ${_formatPayout(quote)} to MoMo, then Approve.'),
+                  if (str(payout['number']).isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF86EFAC))),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Send payout to:', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald)),
+                          Text(_momoLine(payout), style: const TextStyle(fontWeight: FontWeight.w700)),
+                          if (str(payout['account_name']).isNotEmpty) Text(str(payout['account_name'])),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: OutlinedButton(onPressed: _busy ? null : () => Navigator.pop(ctx), child: const Text('Cancel'))),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                          onPressed: _busy
+                              ? null
+                              : () async {
+                                  Navigator.pop(ctx);
+                                  await _confirmProcess();
+                                },
+                          icon: const Icon(Icons.play_arrow_rounded),
+                          label: const Text('Mark Processing'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mounted) setState(() => _processTarget = null);
+  }
+
+  Future<void> _showApproveModal() async {
+    final target = _approveTarget;
+    if (target == null) return;
+    final user = asMap(target['user']);
+    final quote = asMap(target['quote']);
+    final payout = asMap(target['payout_account']);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => AlertDialog(
+          insetPadding: const EdgeInsets.all(16),
+          contentPadding: EdgeInsets.zero,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(colors: [Color(0xFF22C55E), Color(0xFF16A34A)]),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+                  ),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Approve RMB Sell', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
+                      SizedBox(height: 4),
+                      Text('Confirm MoMo payout sent (does not add to wallet).', style: TextStyle(color: Color(0xFFDCFCE7), fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('${str(user['name'])} sold ¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}'),
+                      const SizedBox(height: 8),
+                      Text('Confirm you sent ${_formatPayout(quote)} via Mobile Money.'),
+                      if (str(payout['number']).isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF86EFAC))),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Send GHS to MoMo:', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald)),
+                              Text(_momoLine(payout)),
+                              if (str(payout['account_name']).isNotEmpty) Text('Name: ${str(payout['account_name'])}'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await _pickApproveProof();
+                          setModalState(() {});
+                        },
+                        icon: const Icon(Icons.upload_file_outlined),
+                        label: Text(_approveProofName ?? 'Upload MoMo proof (optional)'),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(child: OutlinedButton(onPressed: _busy ? null : () => Navigator.pop(ctx), child: const Text('Cancel'))),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                              onPressed: _busy
+                                  ? null
+                                  : () async {
+                                      Navigator.pop(ctx);
+                                      await _confirmApprove();
+                                    },
+                              icon: const Icon(Icons.check_rounded),
+                              label: const Text('Approve'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _approveTarget = null;
+        _approveProofPath = null;
+        _approveProofName = null;
+      });
+    }
+  }
+
+  Future<void> _showRejectModal() async {
+    final target = _rejectTarget;
+    if (target == null) return;
+    final user = asMap(target['user']);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject sell request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Reject sell request from ${str(user['name'])}?'),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: const InputDecoration(labelText: 'Reason', border: OutlineInputBorder()),
+              onChanged: (value) => _rejectReason = value,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            onPressed: _busy
+                ? null
+                : () async {
+                    Navigator.pop(ctx);
+                    await _confirmReject();
+                  },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (mounted) setState(() => _rejectTarget = null);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AdminResourceList(
-      title: 'Sell RMB (China → GHS)',
-      path: '/admin/sell-rmb',
-      autoRefreshInterval: const Duration(seconds: 8),
-      filterLabelFor: transferStatusFilterLabel,
-      filters: const ['open', 'submitted', 'payout_processing', 'paid', 'completed', 'all'],
-      searchHint: 'Search reference or buyer',
-      listHeader: (meta) => meta == null ? null : _TransferRmbStatsBar(meta: meta),
-      itemBuilder: (item, _) => _TransferTile(
-        item: item,
-        onTap: () => context.push('/sell-rmb/${item['id']}'),
+    final sendMomo = _sectionItems('send_momo');
+    final awaiting = _sectionItems('awaiting_review');
+    final other = items.where((item) => !['send_momo', 'awaiting_review'].contains(str(item['admin_queue_section']))).toList();
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/more');
+            }
+          },
+        ),
+        title: const Text('Open RMB Sells'),
+        actions: [
+          if (!loading && error == null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Center(
+                child: silentLoading
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Auto refresh', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: () => _load()),
+        ],
+      ),
+      body: loading
+          ? const FullPageLoader()
+          : error != null
+              ? ErrorRetry(message: error!, onRetry: _load)
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF93C5FD)),
+                        ),
+                        child: const Text(
+                          'Workflow: Verify Alipay proof → Process → send MoMo → Approve. Payout does not add to in-app GHS wallet.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF1E3A8A)),
+                        ),
+                      ),
+                      _statsBar(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: TextField(
+                          controller: _search,
+                          decoration: InputDecoration(
+                            hintText: 'Search name, phone, or reference',
+                            suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: () => _load()),
+                          ),
+                          onSubmitted: (_) => _load(),
+                        ),
+                      ),
+                      if (items.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: Text('No open RMB sell requests')),
+                        ),
+                      if (sendMomo.isNotEmpty) ...[
+                        _sectionHeader('Send MoMo now (${sendMomo.length})', const Color(0xFFDBEAFE), const Color(0xFF1D4ED8), Icons.smartphone_outlined),
+                        ...sendMomo.map(_sellCard),
+                      ],
+                      if (awaiting.isNotEmpty) ...[
+                        _sectionHeader('Awaiting review (${awaiting.length})', const Color(0xFFFEF9C3), const Color(0xFF854D0E), Icons.schedule),
+                        ...awaiting.map(_sellCard),
+                      ],
+                      if (other.isNotEmpty) ...[
+                        _sectionHeader('Other open (${other.length})', const Color(0xFFF3F4F6), const Color(0xFF374151), Icons.list_alt),
+                        ...other.map(_sellCard),
+                      ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+    );
+  }
+}
+
+class _SellRmbStatCard extends StatelessWidget {
+  const _SellRmbStatCard({required this.label, required this.value, required this.bg, required this.fg});
+
+  final String label;
+  final String value;
+  final Color bg;
+  final Color fg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: fg)),
+          const SizedBox(height: 2),
+          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
+        ],
       ),
     );
   }
@@ -254,30 +931,17 @@ List<(String, String, bool)> _sellRmbActions(Map<String, dynamic> item) {
       ('fail', 'Fail', false),
     ];
   }
-  if (item['can_mark_paid'] == true) {
+  if (['submitted', 'rmb_verification'].contains(status)) {
     return [
-      ('reject', 'Reject', false),
-      ('fail', 'Fail', false),
-      if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
-    ];
-  }
-  if (status == 'submitted') {
-    return [
-      ('verify', 'Start verification', false),
+      ('mark-processing', 'Process', false),
       ('reject', 'Reject', false),
       if (item['can_cancel'] == true) ('cancel', 'Cancel', false),
     ];
   }
-  if (status == 'rmb_verification') {
+  if (['rmb_received', 'payout_processing'].contains(status)) {
     return [
-      ('received', 'RMB received', false),
+      ('approve-payout', 'Approve payout', false),
       ('reject', 'Reject', false),
-      ('fail', 'Fail', false),
-    ];
-  }
-  if (status == 'rmb_received') {
-    return [
-      ('process', 'Start payout', false),
       ('fail', 'Fail', false),
     ];
   }

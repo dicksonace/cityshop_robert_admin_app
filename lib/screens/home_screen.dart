@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> pendingSellers = [];
   List<Map<String, dynamic>> pendingWithdrawals = [];
   List<Map<String, dynamic>> pendingRmbTransfers = [];
+  List<Map<String, dynamic>> pendingSellRmbTransfers = [];
   Timer? _pollTimer;
 
   @override
@@ -60,16 +61,19 @@ class _HomeScreenState extends State<HomeScreen> {
       final results = await Future.wait([
         store.getJson('/admin/dashboard'),
         store.getJson('/admin/china-transfers', query: {'status': 'open'}),
+        store.getJson('/admin/sell-rmb', query: {'status': 'open'}),
       ]);
       if (!mounted) return;
       final data = results[0];
       final rmb = results[1];
+      final sellRmb = results[2];
       final queues = asMap(data['queues']);
       setState(() {
         stats = asMap(data['stats']);
         pendingSellers = asMaps(queues['sellers']);
         pendingWithdrawals = asMaps(queues['withdrawals']);
         pendingRmbTransfers = asMaps(rmb['data']).take(5).toList();
+        pendingSellRmbTransfers = asMaps(sellRmb['data']).take(5).toList();
         loading = false;
         refreshing = false;
       });
@@ -209,6 +213,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               onTap: () => context.go('/orders?tab=awaiting'),
                             ),
                           ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _QuickAction(
+                              label: 'Sell',
+                              count: stats['pending_sell_rmb'],
+                              icon: Icons.sell_outlined,
+                              onTap: () => context.push('/sell-rmb'),
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -245,6 +258,44 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ? const Icon(Icons.chevron_right)
                                     : Text(amount, style: const TextStyle(fontWeight: FontWeight.w900)),
                                 onTap: () => context.push('/china-transfers/${item['id']}'),
+                              ),
+                            ),
+                          );
+                        }),
+                      const SizedBox(height: 16),
+                      _SectionHeader(
+                        title: 'Sell RMB queue',
+                        action: 'View all',
+                        onAction: () => context.push('/sell-rmb'),
+                      ),
+                      const SizedBox(height: 8),
+                      if (pendingSellRmbTransfers.isEmpty)
+                        const Text('No open Sell RMB transfers.', style: TextStyle(color: AppColors.textSecondary))
+                      else
+                        ...pendingSellRmbTransfers.map((item) {
+                          final userMap = asMap(item['user']);
+                          final quote = asMap(item['quote']);
+                          final amount = quote.isEmpty
+                              ? ''
+                              : '¥${asDouble(quote['rmb_amount']).toStringAsFixed(0)}';
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              child: ListTile(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                title: Text(
+                                  str(item['reference'], '#${item['id']}'),
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
+                                subtitle: Text(
+                                  '${str(userMap['name'])} · ${str(item['status_label'], str(item['status']))}',
+                                ),
+                                trailing: amount.isEmpty
+                                    ? const Icon(Icons.chevron_right)
+                                    : Text(amount, style: const TextStyle(fontWeight: FontWeight.w900)),
+                                onTap: () => context.push('/sell-rmb/${item['id']}'),
                               ),
                             ),
                           );
@@ -287,6 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _StatTile('Deposits', stats['pending_topups'], '/money?tab=deposits'),
                           _StatTile('Open refunds', stats['open_disputes'], '/disputes'),
                           _StatTile('Transfer RMB', stats['pending_rmb'], '/china-transfers'),
+                          _StatTile('Sell RMB', stats['pending_sell_rmb'], '/sell-rmb'),
                           _StatTile('Pending funds', stats['pending_funds'], '/pending-funds'),
                           _StatTile('Unprocessed', stats['unprocessed_orders'], '/orders?tab=unprocessed'),
                           _StatTile('Awaiting confirm', stats['awaiting_confirmation'], '/orders?tab=awaiting'),
