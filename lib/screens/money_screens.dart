@@ -160,6 +160,29 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _withdrawals ? const Color(0xFFECFDF5) : const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _withdrawals ? const Color(0xFF6EE7B7) : const Color(0xFFFDBA74)),
+              ),
+              child: Text(
+                _withdrawals
+                    ? 'Workflow: Start → send MoMo → Complete. Copy number from the card, then mark paid.'
+                    : 'Workflow: Check proof → edit amount if needed → Approve. Reject if payment is wrong.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                  color: _withdrawals ? const Color(0xFF047857) : const Color(0xFFC2410C),
+                ),
+              ),
+            ),
+          ),
           if (_withdrawals) ...[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -198,7 +221,6 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
               options: const ['pending', 'processing', 'paid', 'rejected', 'all'],
               value: withdrawalStatus,
               onChanged: (value) {
-                // Map display labels that include counts for processing.
                 withdrawalStatus = value;
                 _load();
               },
@@ -206,9 +228,14 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
             if (processingCount > 0 && withdrawalStatus == 'pending')
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Text(
-                  '$processingCount processing — switch filter to review them',
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  color: const Color(0xFFDBEAFE),
+                  child: Text(
+                    'Send MoMo now ($processingCount) — switch to processing',
+                    style: const TextStyle(color: Color(0xFF1D4ED8), fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
                 ),
               ),
           ] else
@@ -232,7 +259,7 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
                             : ListView.separated(
                                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                                 itemCount: items.length,
-                                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                                separatorBuilder: (_, _) => const SizedBox(height: 12),
                                 itemBuilder: (context, index) {
                                   final item = items[index];
                                   return _withdrawals
@@ -331,6 +358,32 @@ class _WithdrawalCard extends StatelessWidget {
   final Future<void> Function(String path, {Object? data}) onAct;
   final Future<void> Function(int id) onMarkComplete;
 
+  Color _statusBg(String status) {
+    switch (status) {
+      case 'processing':
+        return const Color(0xFFDBEAFE);
+      case 'paid':
+        return const Color(0xFFD1FAE5);
+      case 'rejected':
+        return const Color(0xFFFEE2E2);
+      default:
+        return const Color(0xFFFFEDD5);
+    }
+  }
+
+  Color _statusFg(String status) {
+    switch (status) {
+      case 'processing':
+        return const Color(0xFF1D4ED8);
+      case 'paid':
+        return const Color(0xFF047857);
+      case 'rejected':
+        return const Color(0xFFB91C1C);
+      default:
+        return const Color(0xFFC2410C);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
@@ -340,17 +393,23 @@ class _WithdrawalCard extends StatelessWidget {
     final id = asInt(item['id']);
     final number = str(item['momo_number']);
     final network = str(item['network_label'], str(item['network']));
+    final accountName = str(item['account_name']);
     final displayName = str(seller['business_name'], str(user['name']));
     final fee = asDouble(item['fee']);
+    final reference = str(item['reference'], '$id');
 
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
+      color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         onTap: () => _openDetails(context),
-        child: Padding(
+        child: Container(
           padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: status == 'processing' ? const Color(0xFFEFF6FF) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -358,65 +417,167 @@ class _WithdrawalCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      money.format(asDouble(item['amount'])),
+                      '#$reference',
                       style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                     ),
                   ),
-                  StatusChip(status),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: _statusBg(status), borderRadius: BorderRadius.circular(999)),
+                    child: Text(
+                      status,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _statusFg(status)),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
-              Text(
-                [
-                  displayName,
-                  if (network.isNotEmpty) network.toLowerCase(),
-                  if (role.isNotEmpty) role,
-                ].join(' · '),
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-              Text(
-                [
-                  if (number.isNotEmpty) number,
-                  if (fee > 0) 'Fee ${money.format(fee)}',
-                  'Ref ${str(item['reference'], str(item['id'], '—'))}',
-                ].join(' · '),
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
+              Text(displayName, style: const TextStyle(fontWeight: FontWeight.w700)),
+              if (role.isNotEmpty)
+                Text(role, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 10),
+              Row(
                 children: [
-                  OutlinedButton(
-                    onPressed: () => _openDetails(context),
-                    child: const Text('View'),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        children: [
+                          const Text('Pay out', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          Text(
+                            money.format(asDouble(item['amount'])),
+                            style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFC2410C)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: fee > 0 ? const Color(0xFFEDE9FE) : const Color(0xFFD1FAE5),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(fee > 0 ? 'Fee' : 'Role', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          Text(
+                            fee > 0 ? money.format(fee) : (role.isEmpty ? 'user' : role),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: fee > 0 ? const Color(0xFF6D28D9) : AppColors.emerald,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF6EE7B7)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('MoMo payout', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+                    if (network.isNotEmpty)
+                      Text(network, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            number.isEmpty ? '—' : number,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.4,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                        FilledButton(
+                          onPressed: number.isEmpty
+                              ? null
+                              : () => copyText(context, number, label: 'Account number copied.'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F172A),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(72, 34),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                          ),
+                          child: const Text('COPY', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                    if (accountName.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(accountName, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openDetails(context),
+                      icon: const Icon(Icons.visibility_outlined, size: 18),
+                      label: const Text('View'),
+                    ),
                   ),
                   if (status == 'pending') ...[
-                    TextButton(
-                      onPressed: () => onAct('/admin/withdrawals/$id/start'),
-                      child: const Text('Start'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => onAct('/admin/withdrawals/$id/start'),
+                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('Start'),
+                      ),
                     ),
-                    TextButton(
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      style: IconButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
                       onPressed: () async {
                         final reason = await promptText(context, title: 'Reject withdrawal', label: 'Reason');
                         if (reason == null) return;
                         await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
                       },
-                      child: const Text('Reject'),
+                      icon: const Icon(Icons.close_rounded),
                     ),
                   ],
                   if (status == 'processing') ...[
-                    TextButton(
-                      onPressed: () => onMarkComplete(id),
-                      child: const Text('Complete'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => onMarkComplete(id),
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                        icon: const Icon(Icons.check_rounded, size: 18),
+                        label: const Text('Complete'),
+                      ),
                     ),
-                    TextButton(
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      style: IconButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
                       onPressed: () async {
                         final reason = await promptText(context, title: 'Reject & refund', label: 'Reason');
                         if (reason == null) return;
                         await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
                       },
-                      child: const Text('Reject'),
+                      icon: const Icon(Icons.close_rounded),
                     ),
                   ],
                 ],
@@ -768,20 +929,52 @@ class _TopUpCard extends StatelessWidget {
   final Future<void> Function(String path, {Object? data}) onAct;
   final Future<void> Function() onReload;
 
+  Color _statusBg(String status) {
+    switch (status) {
+      case 'approved':
+        return const Color(0xFFD1FAE5);
+      case 'rejected':
+        return const Color(0xFFFEE2E2);
+      default:
+        return const Color(0xFFFFEDD5);
+    }
+  }
+
+  Color _statusFg(String status) {
+    switch (status) {
+      case 'approved':
+        return const Color(0xFF047857);
+      case 'rejected':
+        return const Color(0xFFB91C1C);
+      default:
+        return const Color(0xFFC2410C);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final status = str(item['status']);
     final proof = str(item['proof_url']);
     final pending = status == 'pending';
+    final network = str(item['network']);
+    final reference = str(item['payment_reference']);
+    final senderName = str(item['sender_name']);
+    final senderNumber = str(item['sender_number']);
+    final id = asInt(item['id']);
+
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
+      color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         onTap: () => _openDetails(context),
-        child: Padding(
+        child: Container(
           padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: pending ? const Color(0xFFFFF7ED) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -789,52 +982,169 @@ class _TopUpCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      money.format(asDouble(item['amount'])),
+                      '#$id',
                       style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                     ),
                   ),
-                  StatusChip(status),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: _statusBg(status), borderRadius: BorderRadius.circular(999)),
+                    child: Text(
+                      status,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _statusFg(status)),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
-              Text(
-                '${str(user['name'])} · ${str(item['network'])}\nRef ${str(item['payment_reference'], '—')} · ${str(item['sender_name'])} ${str(item['sender_number'])}',
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-              if (pending)
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Tap to check proof and edit amount if needed',
-                    style: TextStyle(color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.w600),
+              Text(str(user['name'], 'Buyer'), style: const TextStyle(fontWeight: FontWeight.w700)),
+              if (network.isNotEmpty)
+                Text(network.toUpperCase(), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        children: [
+                          const Text('Deposit', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          Text(
+                            money.format(asDouble(item['amount'])),
+                            style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFC2410C)),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: const Color(0xFFD1FAE5), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        children: [
+                          const Text('Network', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          Text(
+                            network.isEmpty ? '—' : network.toUpperCase(),
+                            style: const TextStyle(fontWeight: FontWeight.w900, color: AppColors.emerald),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF6EE7B7)),
                 ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Payment details', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+                    Text(
+                      'Ref ${reference.isEmpty ? '—' : reference}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    if (senderName.isNotEmpty || senderNumber.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        [if (senderName.isNotEmpty) senderName, if (senderNumber.isNotEmpty) senderNumber].join(' · '),
+                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                    ],
+                    if (senderNumber.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              senderNumber,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
+                            ),
+                          ),
+                          FilledButton(
+                            onPressed: () => copyText(context, senderNumber, label: 'Sender number copied.'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0F172A),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(72, 34),
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
+                            ),
+                            child: const Text('COPY', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
               if (proof.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 GestureDetector(
                   onTap: () => _openDetails(context),
-                  child: NetworkThumb(item['proof_url'] as String?, size: 88),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 10,
+                      child: CachedNetworkImage(
+                        imageUrl: ApiConfig.resolveMediaUrl(proof),
+                        fit: BoxFit.cover,
+                        placeholder: (_, _) => Container(color: const Color(0xFFFFF7ED), alignment: Alignment.center, child: const CircularProgressIndicator(strokeWidth: 2)),
+                        errorWidget: (_, _, _) => Container(
+                          color: const Color(0xFFFFF7ED),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.image_outlined, color: AppColors.accent, size: 40),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  if (pending)
-                    FilledButton.tonal(
-                      onPressed: () => _openDetails(context),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.ringOrange,
-                        foregroundColor: AppColors.primary,
+                  Expanded(
+                    child: pending
+                        ? OutlinedButton.icon(
+                            onPressed: () => _openDetails(context),
+                            icon: const Icon(Icons.rate_review_outlined, size: 18),
+                            label: const Text('Review'),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: () => _openDetails(context),
+                            icon: const Icon(Icons.visibility_outlined, size: 18),
+                            label: const Text('View'),
+                          ),
+                  ),
+                  if (pending) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => onAct('/admin/top-ups/$id/approve'),
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
+                        icon: const Icon(Icons.check_rounded, size: 18),
+                        label: const Text('Approve'),
                       ),
-                      child: const Text('Review & edit'),
-                    )
-                  else
-                    OutlinedButton(
-                      onPressed: () => _openDetails(context),
-                      child: const Text('View'),
                     ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      style: IconButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+                      onPressed: () async {
+                        final notes = await promptText(context, title: 'Reject deposit', label: 'Admin notes');
+                        if (notes == null) return;
+                        await onAct('/admin/top-ups/$id/reject', data: {'admin_notes': notes});
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
                 ],
               ),
             ],

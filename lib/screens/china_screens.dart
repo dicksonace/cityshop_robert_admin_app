@@ -950,38 +950,42 @@ class _TransferRmbStatsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final processing = meta['processing'];
-    final completed = meta['completed'];
-    final today = meta['today'];
+    final awaiting = meta['awaiting_verification'] ?? 0;
+    final processing = meta['processing'] ?? 0;
+    final completed = meta['completed'] ?? 0;
+    final today = meta['today'] ?? 0;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: _TransferStatChip(
-              label: 'In progress',
-              value: '$processing',
-              color: const Color(0xFFDBEAFE),
-              textColor: const Color(0xFF1D4ED8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFBFDBFE)),
+            ),
+            child: const Text(
+              'Workflow: Verify GHS payment → Process → send Alipay RMB → Complete with proof.',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8), height: 1.35),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _TransferStatChip(
-              label: 'Completed',
-              value: '$completed',
-              color: const Color(0xFFD1FAE5),
-              textColor: AppColors.emerald,
-            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(child: _TransferStatChip(label: 'Awaiting review', value: '$awaiting', color: const Color(0xFFFEF9C3), textColor: const Color(0xFF854D0E))),
+              const SizedBox(width: 8),
+              Expanded(child: _TransferStatChip(label: 'In progress', value: '$processing', color: const Color(0xFFDBEAFE), textColor: const Color(0xFF1D4ED8))),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _TransferStatChip(
-              label: 'Today',
-              value: '$today',
-              color: AppColors.ringOrange,
-              textColor: AppColors.primaryDark,
-            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _TransferStatChip(label: 'Completed', value: '$completed', color: const Color(0xFFD1FAE5), textColor: AppColors.emerald)),
+              const SizedBox(width: 8),
+              Expanded(child: _TransferStatChip(label: 'Today', value: '$today', color: AppColors.ringOrange, textColor: AppColors.primaryDark)),
+            ],
           ),
         ],
       ),
@@ -1012,9 +1016,9 @@ class _TransferStatChip extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: textColor)),
-          const SizedBox(height: 2),
-          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: textColor)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: textColor)),
+          const SizedBox(height: 4),
+          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: textColor)),
         ],
       ),
     );
@@ -1027,55 +1031,178 @@ class _TransferTile extends StatelessWidget {
   final Map<String, dynamic> item;
   final VoidCallback onTap;
 
+  Color get _statusBg {
+    final status = str(item['status']);
+    if (status == 'processing' || status == 'payment_verification') return const Color(0xFFDBEAFE);
+    if (status == 'rmb_sent') return const Color(0xFFD1FAE5);
+    if (status == 'completed') return const Color(0xFFD1FAE5);
+    if (status == 'payment_submitted') return const Color(0xFFFEF3C7);
+    return const Color(0xFFFFEDD5);
+  }
+
+  Color get _statusFg {
+    final status = str(item['status']);
+    if (status == 'processing' || status == 'payment_verification') return const Color(0xFF1D4ED8);
+    if (status == 'rmb_sent' || status == 'completed') return const Color(0xFF047857);
+    if (status == 'payment_submitted') return const Color(0xFF854D0E);
+    return const Color(0xFFC2410C);
+  }
+
+  String? _fieldValue(List<Map<String, dynamic>> fields, List<String> keys) {
+    for (final field in fields) {
+      final name = str(field['name']).toLowerCase();
+      final label = str(field['label']).toLowerCase();
+      final value = str(field['value']);
+      if (value.isEmpty) continue;
+      for (final key in keys) {
+        if (name.contains(key) || label.contains(key)) return value;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = asMap(item['user']);
     final quote = asMap(item['quote']);
+    final fields = asMaps(item['fields']);
     final reference = str(item['reference'], '#${item['id']}');
     final buyer = str(user['name'], 'Buyer');
     final status = str(item['status_label'], str(item['status']));
-    final isSell = str(item['flow']) == 'sell_rmb';
-    final amount = quote.isEmpty
-        ? ''
-        : isSell
-            ? '¥${asDouble(quote['rmb_amount']).toStringAsFixed(0)}'
-            : str(asMap(quote['breakdown'])['total'], money.format(asDouble(quote['total_payable_ghs'])));
+    final statusKey = str(item['status']);
+    final funding = str(item['funding_source_label']);
+    final ghsPaid = asDouble(quote['total_payable_ghs']);
+    final ghs = money.format(ghsPaid > 0 ? ghsPaid : asDouble(quote['ghs_amount']));
+    final rmb = '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}';
+    final alipayName = _fieldValue(fields, const ['alipay_name', 'account_name', 'recipient']);
+    final alipayAccount = _fieldValue(fields, const ['alipay_account', 'alipay_id', 'account', 'qr']);
+    final needsAction = ['payment_submitted', 'payment_verification', 'processing', 'rmb_sent'].contains(statusKey);
 
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: needsAction ? const Color(0xFFEFF6FF) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      reference,
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textPrimary),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$buyer · $status',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
-                    ),
-                  ],
+                child: Text(
+                  reference,
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                 ),
               ),
-              if (amount.isNotEmpty)
-                Text(
-                  amount,
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textPrimary),
-                ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: _statusBg, borderRadius: BorderRadius.circular(999)),
+                child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _statusFg)),
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 4),
+          Text(buyer, style: const TextStyle(fontWeight: FontWeight.w700)),
+          if (funding.isNotEmpty)
+            Text(funding, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    children: [
+                      const Text('GHS paid', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      Text(ghs, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFC2410C))),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    children: [
+                      const Text('RMB to send', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      Text(rmb, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFB91C1C))),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if ((alipayAccount ?? '').isNotEmpty || (alipayName ?? '').isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF6EE7B7)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Send Alipay to', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+                  if ((alipayName ?? '').isNotEmpty)
+                    Text(alipayName!, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          alipayAccount ?? alipayName ?? '—',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.3, fontFamily: 'monospace'),
+                        ),
+                      ),
+                      if ((alipayAccount ?? '').isNotEmpty)
+                        FilledButton(
+                          onPressed: () => copyText(context, alipayAccount!, label: 'Alipay account copied.'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F172A),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(72, 34),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                          ),
+                          child: const Text('COPY', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onTap,
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('View'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onTap,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: needsAction ? AppColors.emerald : const Color(0xFF2563EB),
+                  ),
+                  icon: Icon(needsAction ? Icons.check_rounded : Icons.open_in_new, size: 18),
+                  label: Text(needsAction ? 'Open & process' : 'Open'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1216,7 +1343,6 @@ class _TransferDetailState extends State<_TransferDetail> {
   String? pendingProofName;
   int? pendingProofBytes;
   bool submittingProof = false;
-  bool savingPendingProof = false;
   Timer? _pollTimer;
 
   @override
@@ -1313,30 +1439,7 @@ class _TransferDetailState extends State<_TransferDetail> {
     );
   }
 
-  Future<void> _savePendingProofToPhotos() async {
-    final path = pendingProofPath;
-    if (path == null || savingPendingProof) return;
-    setState(() => savingPendingProof = true);
-    try {
-      if (!await Gal.hasAccess(toAlbum: true) && !await Gal.requestAccess(toAlbum: true)) {
-        if (mounted) showSnack(context, 'Allow photo access to save the proof.', error: true);
-        return;
-      }
-      await Gal.putImage(path, album: 'CityShop Admin');
-      if (mounted) showSnack(context, 'Proof saved to Photos');
-    } catch (e) {
-      if (mounted) showSnack(context, 'Could not save proof: $e', error: true);
-    } finally {
-      if (mounted) setState(() => savingPendingProof = false);
-    }
-  }
-
   Future<void> _submitProofAndComplete() async {
-    final path = pendingProofPath;
-    if (path == null) {
-      showSnack(context, 'Add a proof screenshot first.', error: true);
-      return;
-    }
     if (submittingProof) return;
 
     final quote = asMap(item['quote']);
@@ -1349,12 +1452,21 @@ class _TransferDetailState extends State<_TransferDetail> {
     setState(() => submittingProof = true);
     try {
       final store = context.read<AdminStore>();
-      final result = await store.postForm(
-        '${widget.loadPath}/complete-with-proof',
-        {'rmb_sent_amount': rmb.toStringAsFixed(2)},
-        fileField: 'proof',
-        filePath: path,
-      );
+      final Map<String, dynamic> result;
+      final path = pendingProofPath;
+      if (path != null) {
+        result = await store.postForm(
+          '${widget.loadPath}/complete-with-proof',
+          {'rmb_sent_amount': rmb.toStringAsFixed(2)},
+          fileField: 'proof',
+          filePath: path,
+        );
+      } else {
+        result = await store.postJson(
+          '${widget.loadPath}/complete-with-proof',
+          data: {'rmb_sent_amount': rmb.toStringAsFixed(2)},
+        );
+      }
       if (!mounted) return;
       showSnack(context, str(result['message'], 'Transfer completed.'));
       _clearPendingProof();
@@ -1842,17 +1954,17 @@ class _TransferDetailState extends State<_TransferDetail> {
                                     color: AppColors.emerald.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  child: const Icon(Icons.upload_file_rounded, color: AppColors.emerald),
+                                  child: const Icon(Icons.check_circle_outline, color: AppColors.emerald),
                                 ),
                                 const SizedBox(width: 12),
                                 const Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('Upload proof & complete', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                                      Text('Complete transfer', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                                       SizedBox(height: 4),
                                       Text(
-                                        'Add your Alipay screenshot, review it, then tap Complete.',
+                                        'Send Alipay RMB, then Complete. Proof screenshot is optional.',
                                         style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
                                       ),
                                     ],
@@ -1870,7 +1982,7 @@ class _TransferDetailState extends State<_TransferDetail> {
                                 ),
                                 icon: const Icon(Icons.add_photo_alternate_outlined, color: AppColors.emerald),
                                 label: const Text(
-                                  'Add proof screenshot',
+                                  'Add proof screenshot (optional)',
                                   style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
                                 ),
                               )
@@ -1951,57 +2063,26 @@ class _TransferDetailState extends State<_TransferDetail> {
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: TextButton.icon(
-                                            onPressed: () => _openLocalProof(pendingProofPath!),
-                                            icon: const Icon(Icons.open_in_full, size: 18),
-                                            label: const Text('View full size'),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: TextButton.icon(
-                                            onPressed: savingPendingProof ? null : _savePendingProofToPhotos,
-                                            icon: savingPendingProof
-                                                ? const SizedBox(
-                                                    width: 16,
-                                                    height: 16,
-                                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                                  )
-                                                : const Icon(Icons.download_rounded, size: 18),
-                                            label: Text(savingPendingProof ? 'Saving…' : 'Save to Photos'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      'Check this is the correct Alipay screenshot before completing.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
-                                    ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              FilledButton.icon(
-                                onPressed: submittingProof ? null : _submitProofAndComplete,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.emerald,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                ),
-                                icon: submittingProof
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                      )
-                                    : const Icon(Icons.check_circle_outline),
-                                label: Text(submittingProof ? 'Completing…' : 'Complete transfer'),
-                              ),
                             ],
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              onPressed: submittingProof ? null : _submitProofAndComplete,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.emerald,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              icon: submittingProof
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.check_rounded),
+                              label: Text(submittingProof ? 'Completing…' : 'Complete'),
+                            ),
                           ],
                         ),
                       ),
