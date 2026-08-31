@@ -1946,9 +1946,9 @@ class _TransferDetailState extends State<_TransferDetail> {
 
 bool _isTransferQrField(Map<String, dynamic> field) {
   if (str(field['file_url']).isEmpty) return false;
-  final type = str(field['type']).toLowerCase();
   final blob = '${field['name'] ?? ''} ${field['label'] ?? ''}'.toLowerCase();
-  return ['image', 'document', 'files'].contains(type) || blob.contains('qr');
+  // Only real QR uploads (e.g. alipay_qr) — not payment screenshots / proofs.
+  return blob.contains('qr');
 }
 
 void _openTransferImage(BuildContext context, String url) {
