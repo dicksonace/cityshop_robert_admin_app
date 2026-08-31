@@ -200,6 +200,10 @@ class ApiClient {
     return _withRetry(
       () async {
         final map = Map<String, dynamic>.from(fields);
+        map.updateAll((_, value) {
+          if (value is bool) return value ? '1' : '0';
+          return value;
+        });
         if (fileField != null && filePath != null) {
           map[fileField] = await MultipartFile.fromFile(filePath, filename: filename);
         }
