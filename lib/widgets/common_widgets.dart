@@ -294,6 +294,238 @@ class FilterBar extends StatelessWidget {
   }
 }
 
+class AdminSearchField extends StatelessWidget {
+  const AdminSearchField({
+    super.key,
+    required this.controller,
+    required this.hintText,
+    required this.onSearch,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final VoidCallback onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: const TextStyle(color: AppColors.textMuted),
+        prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+        suffixIcon: IconButton(
+          onPressed: onSearch,
+          icon: const Icon(Icons.arrow_forward_rounded),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(999),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(999),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(999),
+          borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+      ),
+      onSubmitted: (_) => onSearch(),
+    );
+  }
+}
+
+class AdminAccountCard extends StatelessWidget {
+  const AdminAccountCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.photoUrl,
+    this.trailing,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final String? photoUrl;
+  final Widget? trailing;
+  final VoidCallback onTap;
+
+  String _initials(String value) {
+    final parts = value.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).take(2).toList();
+    if (parts.isEmpty) return '?';
+    return parts.map((p) => p[0].toUpperCase()).join();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final resolved = ApiConfig.resolveMediaUrl(photoUrl);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            children: [
+              if (resolved.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(
+                    imageUrl: resolved,
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, _, _) => _avatarFallback(title),
+                  ),
+                )
+              else
+                _avatarFallback(title),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.3),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              trailing ?? const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _avatarFallback(String value) {
+    return Container(
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.ringOrange,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        _initials(value),
+        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 16),
+      ),
+    );
+  }
+}
+
+class AdminAwaitingOrderCard extends StatelessWidget {
+  const AdminAwaitingOrderCard({
+    super.key,
+    required this.productName,
+    required this.orderNumber,
+    required this.statusLabel,
+    this.subtitle,
+    this.onTap,
+    required this.onConfirm,
+  });
+
+  final String productName;
+  final String orderNumber;
+  final String statusLabel;
+  final String? subtitle;
+  final VoidCallback? onTap;
+  final VoidCallback onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      productName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, height: 1.25),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  StatusChip(statusLabel, color: AppColors.accent),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                orderNumber,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: onConfirm,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.accent,
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Confirm delivery', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 String transferStatusFilterLabel(String option) {
   switch (option) {
     case 'open':

@@ -69,21 +69,11 @@ class _SellersScreenState extends State<SellersScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
+            child: AdminSearchField(
               controller: _search,
-              decoration: InputDecoration(
-                hintText: 'Search store, name, mobile',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.arrow_forward),
-                  onPressed: () {
-                    search = _search.text.trim();
-                    _load();
-                  },
-                ),
-              ),
-              onSubmitted: (value) {
-                search = value.trim();
+              hintText: 'Search store, name, mobile',
+              onSearch: () {
+                search = _search.text.trim();
                 _load();
               },
             ),
@@ -112,16 +102,13 @@ class _SellersScreenState extends State<SellersScreen> {
                                 itemBuilder: (context, index) {
                                   final seller = sellers[index];
                                   final user = asMap(seller['user']);
-                                  return Material(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: ListTile(
-                                      leading: NetworkThumb(seller['shop_photo'] as String?),
-                                      title: Text(str(seller['store_name'], 'Store')),
-                                      subtitle: Text('${str(user['name'])} · ${str(user['mobile'])}'),
-                                      trailing: StatusChip(str(seller['status'], 'pending')),
-                                      onTap: () => context.push('/sellers/${seller['id']}'),
-                                    ),
+                                  final status = str(seller['status'], 'pending');
+                                  return AdminAccountCard(
+                                    title: str(seller['store_name'], 'Store'),
+                                    subtitle: '${str(user['name'])} · ${str(user['mobile'])}',
+                                    photoUrl: seller['shop_photo'] as String?,
+                                    trailing: StatusChip(status),
+                                    onTap: () => context.push('/sellers/${seller['id']}'),
                                   );
                                 },
                               ),

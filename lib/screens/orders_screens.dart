@@ -174,34 +174,60 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-                          itemCount: items.length + (_tabs.index == 1 ? 1 : 0),
-                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemCount: items.length + (_tabs.index == 1 ? 1 : 0) + (_tabs.index == 2 ? 1 : 0),
+                          separatorBuilder: (_, _) => const SizedBox(height: 10),
                           itemBuilder: (context, index) {
+                            var offset = 0;
                             if (_tabs.index == 1 && index == 0) {
                               return _UnprocessedBanner(count: unprocessedCount);
                             }
-                            final item = items[_tabs.index == 1 ? index - 1 : index];
+                            if (_tabs.index == 1) offset = 1;
+                            if (_tabs.index == 2 && index == 0) {
+                              return const _AwaitingBanner();
+                            }
+                            if (_tabs.index == 2) {
+                              offset = 1;
+                            }
+                            final item = items[index - offset];
                             final isOrder = item.containsKey('order_number') && item.containsKey('total');
                             final orderId = isOrder ? asInt(item['id']) : asInt(item['order_id']);
+                            final itemId = asInt(item['id']);
+
+                            if (_tabs.index == 2 && !isOrder) {
+                              return AdminAwaitingOrderCard(
+                                productName: str(item['product_name'], 'Item'),
+                                orderNumber: str(item['order_number'], 'Order'),
+                                statusLabel: str(item['status'], 'awaiting confirmation'),
+                                subtitle: '${str(item['buyer_name'])} → ${str(item['seller_name'])}',
+                                onTap: orderId > 0 ? () => context.push('/orders/$orderId') : null,
+                                onConfirm: () => _confirm(itemId),
+                              );
+                            }
+
                             return Material(
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               child: InkWell(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(16),
                                 onTap: orderId > 0 ? () => context.push('/orders/$orderId') : null,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(14),
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                                  ),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Expanded(
                                             child: Text(
                                               isOrder
                                                   ? str(item['order_number'], 'Order')
                                                   : str(item['product_name'], 'Item'),
-                                              style: const TextStyle(fontWeight: FontWeight.w800),
+                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                                             ),
                                           ),
                                           StatusChip(str(item['status'])),
@@ -231,7 +257,7 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
                                             fontSize: 13,
                                           ),
                                         ),
-                                        const SizedBox(height: 8),
+                                        const SizedBox(height: 10),
                                         Align(
                                           alignment: Alignment.centerRight,
                                           child: FilledButton(
@@ -239,18 +265,8 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
                                               backgroundColor: const Color(0xFFDC2626),
                                               foregroundColor: Colors.white,
                                             ),
-                                            onPressed: () => _cancel(asInt(item['id'])),
+                                            onPressed: () => _cancel(itemId),
                                             child: const Text('Cancel & refund'),
-                                          ),
-                                        ),
-                                      ],
-                                      if (_tabs.index == 2) ...[
-                                        const SizedBox(height: 8),
-                                        Align(
-                                          alignment: Alignment.centerRight,
-                                          child: TextButton(
-                                            onPressed: () => _confirm(asInt(item['id'])),
-                                            child: const Text('Confirm delivery'),
                                           ),
                                         ),
                                       ],
@@ -262,6 +278,37 @@ class _OrdersScreenState extends State<OrdersScreen> with SingleTickerProviderSt
                           },
                         ),
                 ),
+    );
+  }
+}
+
+class _AwaitingBanner extends StatelessWidget {
+  const _AwaitingBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFDBA74)),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Waiting for buyer confirmation',
+            style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF9A3412)),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Seller marked delivered. Tap Confirm delivery when the buyer received the item.',
+            style: TextStyle(fontSize: 12, color: Color(0xFFB45309), height: 1.35),
+          ),
+        ],
+      ),
     );
   }
 }

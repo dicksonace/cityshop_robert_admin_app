@@ -182,37 +182,11 @@ class _AdminResourceListState extends State<AdminResourceList> {
           if (widget.searchHint != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: TextField(
+              child: AdminSearchField(
                 controller: _search,
-                decoration: InputDecoration(
-                  hintText: widget.searchHint,
-                  hintStyle: const TextStyle(color: AppColors.textMuted),
-                  prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      search = _search.text.trim();
-                      _load();
-                    },
-                    icon: const Icon(Icons.arrow_forward_rounded),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(999),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(999),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(999),
-                    borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                ),
-                onSubmitted: (value) {
-                  search = value.trim();
+                hintText: widget.searchHint!,
+                onSearch: () {
+                  search = _search.text.trim();
                   _load();
                 },
               ),
@@ -264,15 +238,13 @@ class BuyersScreen extends StatelessWidget {
       title: 'Buyers',
       path: '/admin/buyers',
       searchHint: 'Search name, email, mobile',
-      itemBuilder: (item, _) => Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        child: ListTile(
-          title: Text(str(item['name'])),
-          subtitle: Text('${str(item['mobile'])} · ${money.format(asDouble(item['available_balance']))}'),
-          trailing: item['is_blocked'] == true ? const StatusChip('blacklisted', color: AppColors.danger) : const Icon(Icons.chevron_right),
-          onTap: () => context.push('/buyers/${item['id']}'),
-        ),
+      itemBuilder: (item, _) => AdminAccountCard(
+        title: str(item['name'], 'Buyer'),
+        subtitle: '${str(item['mobile'])} · ${money.format(asDouble(item['available_balance']))}',
+        trailing: item['is_blocked'] == true
+            ? const StatusChip('blacklisted', color: AppColors.danger)
+            : const Icon(Icons.chevron_right, color: AppColors.textMuted),
+        onTap: () => context.push('/buyers/${item['id']}'),
       ),
     );
   }

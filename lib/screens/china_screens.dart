@@ -2941,7 +2941,9 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            open ? 'Live for buyers' : 'Not live yet',
+                            open
+                                ? 'Live for buyers'
+                                : (readiness['live'] == true ? 'Setup incomplete' : 'Paused for buyers'),
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 18,
@@ -2952,7 +2954,9 @@ class _SellRmbSettingsScreenState extends State<SellRmbSettingsScreen> {
                           Text(
                             open
                                 ? 'Buyers can sell RMB for GHS on the app and website.'
-                                : 'Complete all steps below. “Paused” only shows when you turn Live off.',
+                                : readiness['live'] == true
+                                    ? 'Publish the buying rate and upload Alipay QR, then buyers can sell RMB.'
+                                    : 'Live is off — buyers see “Paused”. Turn Live on when rate and QR are ready.',
                             style: const TextStyle(fontSize: 13, height: 1.35),
                           ),
                           const SizedBox(height: 12),
