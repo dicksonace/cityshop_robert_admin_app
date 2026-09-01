@@ -40,6 +40,7 @@ class MoreScreen extends StatelessWidget {
             padding: EdgeInsets.only(top: 12, bottom: 4),
             child: Text('People', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
           ),
+          _tile(context, Icons.storefront_outlined, 'Sellers', '/sellers'),
           _tile(context, Icons.people_outline, 'Buyers', '/buyers'),
           _tile(context, Icons.badge_outlined, 'Ghana Card KYC', '/kyc'),
           _tile(context, Icons.link, 'Seller invites', '/invites'),

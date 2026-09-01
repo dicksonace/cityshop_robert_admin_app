@@ -359,20 +359,63 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
     }
   }
 
+  String _formatWhen(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return '—';
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    return DateFormat('d MMM yyyy, hh:mm a').format(dt.toLocal());
+  }
+
+  Widget _sectionCard({required String title, required List<Widget> children}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _info(String label, String value) {
+    if (value.trim().isEmpty || value == '—') return const SizedBox.shrink();
+    return _DetailRow(label: label, value: value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final blocked = buyer['is_blocked'] == true;
+    final wallet = asMap(buyer['wallet']);
+    final kyc = buyer['kyc'] is Map ? asMap(buyer['kyc']) : <String, dynamic>{};
+    final kycId = asInt(kyc['id']);
+    final recentTx = asMaps(buyer['recent_transactions']);
+    final recentOrders = asMaps(buyer['recent_orders']);
+    final location = [str(buyer['city']), str(buyer['region'])].where((s) => s.isNotEmpty).join(', ');
+    final ghanaCard = str(kyc['ghana_card_number'], str(buyer['ghana_card_number']));
 
     return Scaffold(
-      appBar: AppBar(title: Text(str(buyer['name'], 'Buyer')), actions: [
-        IconButton(onPressed: loading || busy ? null : _edit, icon: const Icon(Icons.edit_outlined)),
-      ]),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(str(buyer['name'], 'Buyer')),
+        actions: [
+          IconButton(onPressed: loading || busy ? null : _edit, icon: const Icon(Icons.edit_outlined)),
+        ],
+      ),
       body: loading
-          ? const FullPageLoader()
+          ? const FullPageLoader(label: 'Loading buyer…')
           : error != null
               ? ErrorRetry(message: error!, onRetry: _load)
               : ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                   children: [
                     if (busy) const LinearProgressIndicator(minHeight: 2),
                     if (blocked) ...[
@@ -390,37 +433,272 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    Text(str(buyer['email'])),
-                    Text(str(buyer['mobile'])),
-                    const SizedBox(height: 8),
-                    Text('Wallet ${money.format(asDouble(buyer['available_balance']))} · ${buyer['orders_count'] ?? 0} orders'),
-                    const SizedBox(height: 20),
-                    const Text('Security', style: TextStyle(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Blacklist locks the account — no login and no re-register with same email/phone. Delete removes the account and lets them sign up again.',
-                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
+                            backgroundColor: AppColors.ringOrange,
+                            child: Text(
+                              str(buyer['name']).isNotEmpty ? str(buyer['name']).substring(0, 1).toUpperCase() : '?',
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: AppColors.accent),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(str(buyer['name']), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                                const SizedBox(height: 4),
+                                Text(str(buyer['email']), style: const TextStyle(color: AppColors.textSecondary)),
+                                Text(str(buyer['mobile']), style: const TextStyle(color: AppColors.textSecondary)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    if (blocked)
-                      PrimaryButton(label: 'Remove blacklist', loading: busy, onPressed: busy ? null : _unblock)
-                    else
-                      OutlinedButton(
-                        onPressed: busy ? null : _block,
-                        style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
-                        child: const Text('Blacklist user'),
+                    const SizedBox(height: 14),
+                    _sectionCard(
+                      title: 'Account',
+                      children: [
+                        _info('Country', str(buyer['country'])),
+                        _info('Location', location),
+                        _info('Address', str(buyer['residential_address'])),
+                        _info('Digital address', str(buyer['digital_address'])),
+                        _info('Saved addresses', '${buyer['addresses_count'] ?? 0}'),
+                        _info('Orders', '${buyer['orders_count'] ?? 0}'),
+                        _info('Joined', _formatWhen(buyer['created_at'] as String?)),
+                        _info('Last seen', _formatWhen(buyer['last_seen_at'] as String?)),
+                        _info('Payment PIN', buyer['has_payment_pin'] == true ? 'Set' : 'Not set'),
+                      ],
+                    ),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F172A), Color(0xFF1E3A8A)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                    const SizedBox(height: 8),
-                    OutlinedButton(
-                      onPressed: busy ? null : _delete,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.danger,
-                        side: const BorderSide(color: Color(0xFFFECACA)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Wallet', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 6),
+                          Text(
+                            money.format(asDouble(wallet['available_balance'])),
+                            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Available balance',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 13),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _WalletPill(
+                                label: 'Pending',
+                                value: money.format(asDouble(wallet['pending_balance'])),
+                              ),
+                              _WalletPill(
+                                label: 'RMB',
+                                value: '¥${asDouble(wallet['rmb_balance']).toStringAsFixed(2)}',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Material(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: kycId > 0 ? () => context.push('/kyc/$kycId') : null,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.badge_outlined, color: Colors.white),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Ghana Card KYC',
+                                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                          ),
+                                          Text(
+                                            kycId > 0
+                                                ? '${str(kyc['status_label'], str(kyc['status']))}${ghanaCard.isNotEmpty ? ' · $ghanaCard' : ''}'
+                                                : 'Not submitted — tap after buyer uploads',
+                                            style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (kycId > 0)
+                                      Icon(Icons.chevron_right, color: Colors.white.withValues(alpha: 0.9)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+                              ),
+                              onPressed: () => context.push('/wallet-funding'),
+                              child: const Text('Manage wallet balance'),
+                            ),
+                          ),
+                        ],
                       ),
-                      child: const Text('Delete account (allow re-register)'),
+                    ),
+                    if (kycId > 0)
+                      _sectionCard(
+                        title: 'Ghana Card',
+                        children: [
+                          if (kyc['front_url'] != null)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: NetworkThumb(kyc['front_url'] as String?, size: 120),
+                            ),
+                          if (kyc['front_url'] != null) const SizedBox(height: 10),
+                          _info('Card number', ghanaCard),
+                          _info('Name on card', str(kyc['full_name'])),
+                          _info('Status', str(kyc['status_label'], str(kyc['status']))),
+                          _info('Submitted', _formatWhen(kyc['submitted_at'] as String?)),
+                          const SizedBox(height: 4),
+                          TextButton(
+                            onPressed: () => context.push('/kyc/$kycId'),
+                            child: const Text('View full Ghana Card review'),
+                          ),
+                        ],
+                      ),
+                    if (recentTx.isNotEmpty)
+                      _sectionCard(
+                        title: 'Recent wallet activity',
+                        children: [
+                          for (final tx in recentTx) ...[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        str(tx['type_label'], str(tx['type'])),
+                                        style: const TextStyle(fontWeight: FontWeight.w700),
+                                      ),
+                                      if (str(tx['description']).isNotEmpty)
+                                        Text(str(tx['description']), style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                                      Text(_formatWhen(tx['created_at'] as String?), style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  money.format(asDouble(tx['amount'])),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: asDouble(tx['amount']) >= 0 ? AppColors.emerald : AppColors.danger,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (tx != recentTx.last) const Divider(height: 20),
+                          ],
+                          TextButton(
+                            onPressed: () => context.push('/transactions'),
+                            child: const Text('View all transactions'),
+                          ),
+                        ],
+                      ),
+                    if (recentOrders.isNotEmpty)
+                      _sectionCard(
+                        title: 'Recent orders',
+                        children: [
+                          for (final order in recentOrders) ...[
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(str(order['order_number']), style: const TextStyle(fontWeight: FontWeight.w700)),
+                              subtitle: Text('${str(order['status'])} · ${str(order['payment_status'])}'),
+                              trailing: Text(money.format(asDouble(order['total']))),
+                              onTap: () => context.push('/orders/${order['id']}'),
+                            ),
+                            if (order != recentOrders.last) const Divider(height: 1),
+                          ],
+                        ],
+                      ),
+                    _sectionCard(
+                      title: 'Security',
+                      children: [
+                        const Text(
+                          'Blacklist locks the account — no login and no re-register with same email/phone. Delete removes the account and lets them sign up again.',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                        ),
+                        const SizedBox(height: 12),
+                        if (blocked)
+                          PrimaryButton(label: 'Remove blacklist', loading: busy, onPressed: busy ? null : _unblock)
+                        else
+                          OutlinedButton(
+                            onPressed: busy ? null : _block,
+                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                            child: const Text('Blacklist user'),
+                          ),
+                        const SizedBox(height: 8),
+                        OutlinedButton(
+                          onPressed: busy ? null : _delete,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.danger,
+                            side: const BorderSide(color: Color(0xFFFECACA)),
+                          ),
+                          child: const Text('Delete account (allow re-register)'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _WalletPill extends StatelessWidget {
+  const _WalletPill({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+      ),
     );
   }
 }
