@@ -18,10 +18,10 @@ List<Map<String, dynamic>> asMaps(dynamic value) {
   return value.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
 }
 
-String str(dynamic value, [String fallback = '']) {
-  if (value == null) return fallback;
+String str(dynamic value, [dynamic fallback = '']) {
+  if (value == null) return fallback?.toString() ?? '';
   final text = value.toString().trim();
-  return text.isEmpty ? fallback : text;
+  return text.isEmpty ? (fallback?.toString() ?? '') : text;
 }
 
 int asInt(dynamic value) {

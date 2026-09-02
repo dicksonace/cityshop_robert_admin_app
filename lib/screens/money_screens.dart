@@ -81,6 +81,12 @@ class _MoneyScreenState extends State<MoneyScreen> with SingleTickerProviderStat
         error = e.message;
         loading = false;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        error = e.toString();
+        loading = false;
+      });
     }
   }
 

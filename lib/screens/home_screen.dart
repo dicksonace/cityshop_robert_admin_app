@@ -84,6 +84,13 @@ class _HomeScreenState extends State<HomeScreen> {
         loading = false;
         refreshing = false;
       });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (!silent) error = e.toString();
+        loading = false;
+        refreshing = false;
+      });
     }
   }
 
@@ -358,9 +365,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: _QueueCard(
                               idLabel: '#${str(item['reference'], item['id'])}',
                               name: str(userMap['name'], 'User'),
-                              status: str(item['status'], 'pending'),
-                              statusBg: const Color(0xFFFFEDD5),
-                              statusFg: const Color(0xFFC2410C),
+                              status: str(item['status_label'], str(item['status'], 'pending')),
+                              statusBg: str(item['status']) == 'processing'
+                                  ? const Color(0xFFDBEAFE)
+                                  : const Color(0xFFFFEDD5),
+                              statusFg: str(item['status']) == 'processing'
+                                  ? const Color(0xFF1D4ED8)
+                                  : const Color(0xFFC2410C),
                               leftLabel: 'Pay out',
                               leftValue: money.format(asDouble(item['amount'])),
                               leftBg: const Color(0xFFFFF7ED),
