@@ -531,6 +531,14 @@ class _WithdrawalCard extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(accountName, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                       ),
+                    if (str(item['failure_reason']).isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          str(item['failure_reason']),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFB91C1C)),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -563,6 +571,17 @@ class _WithdrawalCard extends StatelessWidget {
                         await onAct('/admin/withdrawals/$id/reject', data: {'rejection_reason': reason});
                       },
                       icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                  if (status == 'processing' && str(item['payout_channel']) != 'paystack') ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => onAct('/admin/withdrawals/$id/paystack'),
+                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
+                        icon: const Icon(Icons.send_rounded, size: 18),
+                        label: const Text('Paystack'),
+                      ),
                     ),
                   ],
                   if (status == 'processing') ...[
