@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../main.dart' show adminAppVersion;
 import '../store/admin_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -58,15 +59,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     try {
       final store = context.read<AdminStore>();
-      final results = await Future.wait([
-        store.getJson('/admin/dashboard'),
-        store.getJson('/admin/china-transfers', query: {'status': 'open'}),
-        store.getJson('/admin/sell-rmb', query: {'status': 'open'}),
-      ]);
+      // Dashboard is required; RMB queues are best-effort so one bad endpoint
+      // cannot blank the whole Home tab.
+      final data = await store.getJson('/admin/dashboard');
+      Map<String, dynamic> rmb = {};
+      Map<String, dynamic> sellRmb = {};
+      try {
+        rmb = await store.getJson('/admin/china-transfers', query: {'status': 'open'});
+      } catch (_) {}
+      try {
+        sellRmb = await store.getJson('/admin/sell-rmb', query: {'status': 'open'});
+      } catch (_) {}
       if (!mounted) return;
-      final data = results[0];
-      final rmb = results[1];
-      final sellRmb = results[2];
       final queues = asMap(data['queues']);
       setState(() {
         stats = asMap(data['stats']);
@@ -76,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
         pendingSellRmbTransfers = asMaps(sellRmb['data']).take(5).toList();
         loading = false;
         refreshing = false;
+        if (!silent) error = null;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -95,6 +100,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _refresh() => _load(fromRefresh: true);
+
+  List<Widget> _safeQueueChildren(List<Widget> Function() build) {
+    try {
+      return build();
+    } catch (e) {
+      return [
+        _EmptyQueue('Could not render queue item: $e'),
+      ];
+    }
+  }
 
   void _go(String path) {
     if (path.startsWith('/money') || path == '/sellers' || path == '/orders' || path.startsWith('/orders?')) {
@@ -173,9 +188,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Queues that need a decision today.',
-                        style: TextStyle(color: AppColors.textSecondary),
+                      Text(
+                        'Queues that need a decision today.  ·  Admin v$adminAppVersion',
+                        style: const TextStyle(color: AppColors.textSecondary),
                       ),
                       const SizedBox(height: 12),
                       Container(
@@ -275,32 +290,34 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (pendingRmbTransfers.isEmpty)
                         const _EmptyQueue('No open RMB transfers.')
                       else
-                        ...pendingRmbTransfers.map((item) {
-                          final userMap = asMap(item['user']);
-                          final quote = asMap(item['quote']);
-                          final ghsPaid = asDouble(quote['total_payable_ghs']);
-                          final ghs = money.format(ghsPaid > 0 ? ghsPaid : asDouble(quote['ghs_amount']));
-                          final rmb = '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}';
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _QueueCard(
-                              idLabel: str(item['reference'], '#${item['id']}'),
-                              name: str(userMap['name'], 'Buyer'),
-                              status: str(item['status_label'], str(item['status'])),
-                              statusBg: const Color(0xFFDBEAFE),
-                              statusFg: const Color(0xFF1D4ED8),
-                              leftLabel: 'GHS paid',
-                              leftValue: ghs,
-                              leftBg: const Color(0xFFFFF7ED),
-                              leftFg: const Color(0xFFC2410C),
-                              rightLabel: 'RMB to send',
-                              rightValue: rmb,
-                              rightBg: const Color(0xFFFEE2E2),
-                              rightFg: const Color(0xFFB91C1C),
-                              tint: const Color(0xFFEFF6FF),
-                              onOpen: () => context.push('/china-transfers/${item['id']}'),
-                            ),
-                          );
+                        ..._safeQueueChildren(() {
+                          return pendingRmbTransfers.map((item) {
+                            final userMap = asMap(item['user']);
+                            final quote = asMap(item['quote']);
+                            final ghsPaid = asDouble(quote['total_payable_ghs']);
+                            final ghs = money.format(ghsPaid > 0 ? ghsPaid : asDouble(quote['ghs_amount']));
+                            final rmb = '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _QueueCard(
+                                idLabel: str(item['reference'], 'WD-${str(item['id'])}'),
+                                name: str(userMap['name'], 'Buyer'),
+                                status: str(item['status_label'], str(item['status'])),
+                                statusBg: const Color(0xFFDBEAFE),
+                                statusFg: const Color(0xFF1D4ED8),
+                                leftLabel: 'GHS paid',
+                                leftValue: ghs,
+                                leftBg: const Color(0xFFFFF7ED),
+                                leftFg: const Color(0xFFC2410C),
+                                rightLabel: 'RMB to send',
+                                rightValue: rmb,
+                                rightBg: const Color(0xFFFEE2E2),
+                                rightFg: const Color(0xFFB91C1C),
+                                tint: const Color(0xFFEFF6FF),
+                                onOpen: () => context.push('/china-transfers/${item['id']}'),
+                              ),
+                            );
+                          }).toList();
                         }),
                       const SizedBox(height: 8),
                       _SectionBar(
@@ -314,35 +331,37 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (pendingSellRmbTransfers.isEmpty)
                         const _EmptyQueue('No open Sell RMB transfers.')
                       else
-                        ...pendingSellRmbTransfers.map((item) {
-                          final userMap = asMap(item['user']);
-                          final quote = asMap(item['quote']);
-                          final payout = asMap(item['payout_account']);
-                          final rmb = '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}';
-                          final ghs = money.format(asDouble(quote['ghs_payout']));
-                          final momo = str(payout['number']);
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _QueueCard(
-                              idLabel: '#${item['id']}',
-                              name: str(userMap['name'], 'Buyer'),
-                              status: str(item['status_label'], str(item['status'])),
-                              statusBg: const Color(0xFFDBEAFE),
-                              statusFg: const Color(0xFF1D4ED8),
-                              leftLabel: 'RMB',
-                              leftValue: rmb,
-                              leftBg: const Color(0xFFFEE2E2),
-                              leftFg: const Color(0xFFB91C1C),
-                              rightLabel: 'GHS Payout',
-                              rightValue: ghs,
-                              rightBg: const Color(0xFFD1FAE5),
-                              rightFg: AppColors.emerald,
-                              tint: const Color(0xFFECFDF5),
-                              copyValue: momo.isEmpty ? null : momo,
-                              copyHint: str(payout['network'], 'MoMo payout'),
-                              onOpen: () => context.push('/sell-rmb/${item['id']}'),
-                            ),
-                          );
+                        ..._safeQueueChildren(() {
+                          return pendingSellRmbTransfers.map((item) {
+                            final userMap = asMap(item['user']);
+                            final quote = asMap(item['quote']);
+                            final payout = asMap(item['payout_account']);
+                            final rmb = '¥${asDouble(quote['rmb_amount']).toStringAsFixed(2)}';
+                            final ghs = money.format(asDouble(quote['ghs_payout']));
+                            final momo = str(payout['number']);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _QueueCard(
+                                idLabel: '#${str(item['id'])}',
+                                name: str(userMap['name'], 'Buyer'),
+                                status: str(item['status_label'], str(item['status'])),
+                                statusBg: const Color(0xFFDBEAFE),
+                                statusFg: const Color(0xFF1D4ED8),
+                                leftLabel: 'RMB',
+                                leftValue: rmb,
+                                leftBg: const Color(0xFFFEE2E2),
+                                leftFg: const Color(0xFFB91C1C),
+                                rightLabel: 'GHS Payout',
+                                rightValue: ghs,
+                                rightBg: const Color(0xFFD1FAE5),
+                                rightFg: AppColors.emerald,
+                                tint: const Color(0xFFECFDF5),
+                                copyValue: momo.isEmpty ? null : momo,
+                                copyHint: str(payout['network'], 'MoMo payout'),
+                                onOpen: () => context.push('/sell-rmb/${item['id']}'),
+                              ),
+                            );
+                          }).toList();
                         }),
                       const SizedBox(height: 8),
                       _SectionBar(
@@ -356,36 +375,36 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (pendingWithdrawals.isEmpty)
                         const _EmptyQueue('No pending withdrawals.')
                       else
-                        ...pendingWithdrawals.take(5).map((item) {
-                          final userMap = asMap(item['user']);
-                          final number = str(item['momo_number']);
-                          final network = str(item['network_label'], str(item['network']));
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _QueueCard(
-                              idLabel: '#${str(item['reference'], item['id'])}',
-                              name: str(userMap['name'], 'User'),
-                              status: str(item['status_label'], str(item['status'], 'pending')),
-                              statusBg: str(item['status']) == 'processing'
-                                  ? const Color(0xFFDBEAFE)
-                                  : const Color(0xFFFFEDD5),
-                              statusFg: str(item['status']) == 'processing'
-                                  ? const Color(0xFF1D4ED8)
-                                  : const Color(0xFFC2410C),
-                              leftLabel: 'Pay out',
-                              leftValue: money.format(asDouble(item['amount'])),
-                              leftBg: const Color(0xFFFFF7ED),
-                              leftFg: const Color(0xFFC2410C),
-                              rightLabel: 'Role',
-                              rightValue: str(userMap['role'], 'user'),
-                              rightBg: const Color(0xFFDBEAFE),
-                              rightFg: const Color(0xFF1D4ED8),
-                              tint: Colors.white,
-                              copyValue: number.isEmpty ? null : number,
-                              copyHint: network.isEmpty ? 'MoMo payout' : network,
-                              onOpen: () => context.go('/money'),
-                            ),
-                          );
+                        ..._safeQueueChildren(() {
+                          return pendingWithdrawals.take(5).map((item) {
+                            final userMap = asMap(item['user']);
+                            final number = str(item['momo_number']);
+                            final network = str(item['network_label'], str(item['network']));
+                            final status = str(item['status_label'], str(item['status'], 'pending'));
+                            final processing = str(item['status']) == 'processing';
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _QueueCard(
+                                idLabel: 'WD-${str(item['id'])}',
+                                name: str(userMap['name'], 'User'),
+                                status: status,
+                                statusBg: processing ? const Color(0xFFDBEAFE) : const Color(0xFFFFEDD5),
+                                statusFg: processing ? const Color(0xFF1D4ED8) : const Color(0xFFC2410C),
+                                leftLabel: 'Pay out',
+                                leftValue: money.format(asDouble(item['amount'])),
+                                leftBg: const Color(0xFFFFF7ED),
+                                leftFg: const Color(0xFFC2410C),
+                                rightLabel: 'Role',
+                                rightValue: str(userMap['role'], 'user'),
+                                rightBg: const Color(0xFFDBEAFE),
+                                rightFg: const Color(0xFF1D4ED8),
+                                tint: Colors.white,
+                                copyValue: number.isEmpty ? null : number,
+                                copyHint: network.isEmpty ? 'MoMo payout' : network,
+                                onOpen: () => context.go('/money'),
+                              ),
+                            );
+                          }).toList();
                         }),
                       const SizedBox(height: 8),
                       _SectionBar(
