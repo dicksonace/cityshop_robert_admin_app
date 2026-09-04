@@ -351,6 +351,8 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
   final _amount = TextEditingController();
   final _momo = TextEditingController();
   final _autoPercent = TextEditingController();
+  final _autoFlat = TextEditingController();
+  String autoFeeMode = 'flat';
   final List<_BankTierEditors> _tiers = [];
 
   @override
@@ -364,6 +366,7 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
     _amount.dispose();
     _momo.dispose();
     _autoPercent.dispose();
+    _autoFlat.dispose();
     for (final tier in _tiers) {
       tier.dispose();
     }
@@ -395,7 +398,10 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
       if (appliesTo == 'all') appliesTo = 'bank';
       _amount.text = str(settings['amount'], '10');
       _momo.text = str(settings['momo_amount'], '0');
+      autoFeeMode = str(auto['fee_mode'], (asDouble(auto['fee_percent']) > 0) ? 'percent' : 'flat');
+      if (autoFeeMode != 'percent') autoFeeMode = 'flat';
       _autoPercent.text = str(auto['fee_percent'], '0');
+      _autoFlat.text = str(auto['fee_flat'], '1');
       _replaceTiers(asMaps(settings['bank_tiers']));
       setState(() => loading = false);
     } on ApiException catch (e) {
@@ -438,15 +444,43 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Enable Paystack auto withdrawal'),
-                      subtitle: const Text('Pay out without the admin queue. Uses the percent fee instead of bank bands.'),
+                      subtitle: const Text(
+                        'Pay out via Paystack without the admin queue. Fee below is separate from recharge fees.',
+                      ),
                       value: auto['enabled'] == true,
                       onChanged: (value) => setState(() => auto['enabled'] = value),
                     ),
-                    TextField(
-                      controller: _autoPercent,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'Auto Paystack fee %'),
+                    DropdownButtonFormField<String>(
+                      initialValue: autoFeeMode,
+                      decoration: const InputDecoration(
+                        labelText: 'Paystack withdrawal fee type',
+                        helperText: 'Flat fee works like bank fees (recommended).',
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'flat', child: Text('Flat fee (GH₵)')),
+                        DropdownMenuItem(value: 'percent', child: Text('Percent of amount')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => autoFeeMode = value);
+                      },
                     ),
+                    const SizedBox(height: 8),
+                    if (autoFeeMode == 'flat')
+                      TextField(
+                        controller: _autoFlat,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: 'Flat Paystack withdrawal fee (GHS)',
+                          helperText: 'Example: GH₵1 — same amount every payout.',
+                        ),
+                      )
+                    else
+                      TextField(
+                        controller: _autoPercent,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Auto Paystack fee %'),
+                      ),
                     const SizedBox(height: 16),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
@@ -560,6 +594,8 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                                 )
                                 .toList(),
                             'auto_paystack_enabled': auto['enabled'] == true,
+                            'auto_paystack_fee_mode': autoFeeMode,
+                            'auto_paystack_fee_flat': _autoFlat.text,
                             'auto_paystack_fee_percent': _autoPercent.text,
                           });
                           if (!context.mounted) return;

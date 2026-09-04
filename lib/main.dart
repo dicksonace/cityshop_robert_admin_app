@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,7 +7,7 @@ import 'store/admin_store.dart';
 import 'theme/app_theme.dart';
 
 /// Bump with pubspec version so phones show which build is installed.
-const adminAppVersion = '1.0.54';
+const adminAppVersion = '1.0.55';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
