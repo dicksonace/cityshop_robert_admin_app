@@ -94,7 +94,12 @@ class _AdminResourceListState extends State<AdminResourceList> {
       if (!mounted) return;
       setState(() {
         items = asMaps(data['data']);
-        listMeta = data['dashboard'] is Map ? Map<String, dynamic>.from(data['dashboard'] as Map) : null;
+        final meta = asMap(data['meta']);
+        final dashboard = data['dashboard'] is Map ? asMap(data['dashboard']) : <String, dynamic>{};
+        listMeta = {
+          ...meta,
+          ...dashboard,
+        };
         loading = false;
         silentLoading = false;
       });
@@ -238,6 +243,22 @@ class BuyersScreen extends StatelessWidget {
       title: 'Buyers',
       path: '/admin/buyers',
       searchHint: 'Search name, email, mobile',
+      listHeader: (meta) {
+        final registered = asInt(meta?['registered_total']);
+        final matching = asInt(meta?['total']);
+        final total = registered > 0 ? registered : matching;
+        if (total <= 0) return null;
+        final label = registered > 0 && matching > 0 && matching != registered
+            ? '$registered registered · $matching match${matching == 1 ? '' : 'es'}'
+            : '$total registered buyer${total == 1 ? '' : 's'}';
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
+          ),
+        );
+      },
       itemBuilder: (item, _) => AdminAccountCard(
         title: str(item['name'], 'Buyer'),
         subtitle: '${str(item['mobile'])} · ${money.format(asDouble(item['available_balance']))}',

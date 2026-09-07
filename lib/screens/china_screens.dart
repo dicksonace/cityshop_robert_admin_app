@@ -2332,6 +2332,7 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
   Map<String, dynamic> data = {};
   final _rmbPerGhsController = TextEditingController();
   final _ghsPerRmbController = TextEditingController();
+  final _minGhsController = TextEditingController(text: '100');
   bool _syncingRates = false;
 
   @override
@@ -2348,6 +2349,7 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
     _ghsPerRmbController.removeListener(_onGhsPerRmbChanged);
     _rmbPerGhsController.dispose();
     _ghsPerRmbController.dispose();
+    _minGhsController.dispose();
     super.dispose();
   }
 
@@ -2370,6 +2372,8 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
       _rmbPerGhsController.text = '0.559';
       _ghsPerRmbController.text = '1.789';
     }
+    final minGhs = asDouble(rate['min_ghs']);
+    _minGhsController.text = minGhs > 0 ? minGhs.toStringAsFixed(0) : '100';
     _syncingRates = false;
   }
 
@@ -2438,6 +2442,11 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
       showSnack(context, 'Enter a valid GHS to RMB rate (e.g. 0.558).', error: true);
       return;
     }
+    final minGhs = double.tryParse(_minGhsController.text.trim()) ?? 100;
+    if (minGhs <= 0) {
+      showSnack(context, 'Enter a valid minimum GHS amount.', error: true);
+      return;
+    }
     setState(() => publishing = true);
     try {
       final rate = asMap(data['current_rate']);
@@ -2445,7 +2454,7 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
         'rmb_per_ghs': rmb,
         'fee_mode': rate['fee_mode'] ?? 'percent',
         'fee_value': rate['fee_value'] ?? 0,
-        'min_ghs': rate['min_ghs'] ?? 50,
+        'min_ghs': minGhs,
         'max_ghs': rate['max_ghs'] ?? 50000,
         if (rate['daily_max_ghs'] != null) 'daily_max_ghs': rate['daily_max_ghs'],
         if (rate['monthly_max_ghs'] != null) 'monthly_max_ghs': rate['monthly_max_ghs'],
@@ -2597,6 +2606,25 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                               unitRight: 'GHS',
                               controller: _ghsPerRmbController,
                               helper: 'Synced from RMB rate — 3 decimals (e.g., 1.789, 1.770, 2.300)',
+                            ),
+                            const SizedBox(height: 20),
+                            Text('Min GHS (Buy RMB)', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _minGhsController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                prefixText: 'GH₵ ',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Buyers cannot send less than this. Change anytime and publish.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                             ),
                             const SizedBox(height: 16),
                             PrimaryButton(
