@@ -54,6 +54,7 @@ class MoreScreen extends StatelessWidget {
           _tile(context, Icons.receipt_long_outlined, 'Transactions', '/transactions'),
           _tile(context, Icons.currency_exchange, 'Transfer RMB', '/china-transfers'),
           _tile(context, Icons.currency_yen, 'Sell RMB queues', '/sell-rmb'),
+          _tile(context, Icons.phonelink_setup_outlined, 'GSM Tools', '/gsm-tools'),
           const Padding(
             padding: EdgeInsets.only(top: 12, bottom: 4),
             child: Text('Messages', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textSecondary)),

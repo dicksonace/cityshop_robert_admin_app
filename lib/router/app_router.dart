@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../screens/auth_screens.dart';
 import '../screens/china_screens.dart';
 import '../screens/extra_screens.dart';
+import '../screens/gsm_tools_screens.dart';
 import '../screens/home_screen.dart';
 import '../screens/kyc_screens.dart';
 import '../screens/money_screens.dart';
@@ -98,6 +99,11 @@ GoRouter createRouter(AdminStore store) {
       GoRoute(
         path: '/china-transfers/:id',
         builder: (_, state) => ChinaTransferDetailScreen(id: int.parse(state.pathParameters['id']!)),
+      ),
+      GoRoute(path: '/gsm-tools', builder: (_, _) => const GsmToolsScreen()),
+      GoRoute(
+        path: '/gsm-tools/:id',
+        builder: (_, state) => GsmToolDetailScreen(id: int.parse(state.pathParameters['id']!)),
       ),
       GoRoute(path: '/sell-rmb', builder: (_, _) => const SellRmbScreen()),
       GoRoute(

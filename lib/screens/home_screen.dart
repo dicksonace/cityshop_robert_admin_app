@@ -259,6 +259,30 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Expanded(
                             child: _DashStat(
+                              label: 'GSM Tools',
+                              value: '${stats['pending_gsm'] ?? 0}',
+                              bg: const Color(0xFFEDE9FE),
+                              fg: const Color(0xFF6D28D9),
+                              onTap: () => _go('/gsm-tools'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _DashStat(
+                              label: 'Ghana Card',
+                              value: '${stats['pending_kyc'] ?? 0}',
+                              bg: const Color(0xFFFFEDD5),
+                              fg: const Color(0xFFC2410C),
+                              onTap: () => _go('/kyc'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _DashStat(
                               label: 'Unprocessed',
                               value: '${stats['unprocessed_orders'] ?? 0}',
                               bg: const Color(0xFFFEF9C3),
