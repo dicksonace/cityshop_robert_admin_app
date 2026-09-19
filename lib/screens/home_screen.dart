@@ -324,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
                               child: _QueueCard(
-                                idLabel: str(item['reference'], 'WD-${str(item['id'])}'),
+                                idLabel: str(item['reference'], 'WITHDRAWAL-${str(item['id'])}'),
                                 name: str(userMap['name'], 'Buyer'),
                                 status: str(item['status_label'], str(item['status'])),
                                 statusBg: const Color(0xFFDBEAFE),
@@ -409,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
                               child: _QueueCard(
-                                idLabel: 'WD-${str(item['id'])}',
+                                idLabel: 'WITHDRAWAL-${str(item['id'])}',
                                 name: str(userMap['name'], 'User'),
                                 status: status,
                                 statusBg: processing ? const Color(0xFFDBEAFE) : const Color(0xFFFFEDD5),

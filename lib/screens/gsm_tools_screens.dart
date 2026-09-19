@@ -67,6 +67,7 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
   String? error;
   Map<String, dynamic> order = {};
   final resultNote = TextEditingController();
+  final replyMessage = TextEditingController();
   final failReason = TextEditingController();
 
   @override
@@ -78,6 +79,7 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
   @override
   void dispose() {
     resultNote.dispose();
+    replyMessage.dispose();
     failReason.dispose();
     super.dispose();
   }
@@ -134,6 +136,7 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
     final open = status == 'pending' || status == 'processing';
     final user = asMap(order['user']);
     final fields = asMaps(order['fields']);
+    final replies = asMaps(order['replies']);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -189,15 +192,41 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                     ),
                   ),
                 ),
-                if (str(order['admin_result_note']).isNotEmpty)
+                const Text('Admin reply', style: TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                if (replies.isEmpty)
                   Container(
-                    margin: const EdgeInsets.only(top: 4, bottom: 12),
+                    margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFECFDF5),
+                      color: const Color(0xFFF8FAFC),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Text(str(order['admin_result_note'])),
+                    child: Text(str(order['admin_result_note'], 'No reply yet.')),
+                  )
+                else
+                  ...replies.map(
+                    (reply) => Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(str(reply['body'])),
+                          const SizedBox(height: 4),
+                          Text(
+                            str(reply['admin'], 'Admin'),
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF047857)),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 if (str(order['failure_reason']).isNotEmpty)
                   Container(
@@ -217,21 +246,53 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                           : () async {
                               final ok = await confirmAction(
                                 context,
-                                title: 'Start processing?',
-                                body: 'Mark this GSM order as processing.',
-                                action: 'Process',
+                                title: 'Processing?',
+                                body: 'Mark this GSM order as Processing.',
+                                action: 'Processing',
                               );
                               if (ok && mounted) await _post('process');
                             },
-                      child: const Text('Start processing'),
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+                      child: const Text('Processing'),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('Currently Processing', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF1D4ED8))),
                     ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: replyMessage,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Reply message',
+                      hintText: 'SUCCESS — device unlocked. Paste the code or next steps.',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            final text = replyMessage.text.trim();
+                            if (text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Type a reply first.')),
+                              );
+                              return;
+                            }
+                            await _post('reply', data: {'message': text});
+                            if (mounted) replyMessage.clear();
+                          },
+                    child: const Text('Send reply'),
+                  ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: resultNote,
                     maxLines: 3,
                     decoration: const InputDecoration(
-                      labelText: 'Result note',
-                      hintText: 'What should the buyer see?',
+                      labelText: 'Complete reply',
+                      hintText: 'Optional if you already sent a reply',
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -242,11 +303,14 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                             final ok = await confirmAction(
                               context,
                               title: 'Complete order?',
-                              body: 'Mark this GSM request as completed.',
+                              body: 'Mark this GSM request as Completed. Buyer will see your reply.',
                               action: 'Complete',
                             );
                             if (ok && mounted) {
-                              await _post('complete', data: {'result_note': resultNote.text.trim()});
+                              final note = resultNote.text.trim().isNotEmpty
+                                  ? resultNote.text.trim()
+                                  : replyMessage.text.trim();
+                              await _post('complete', data: {'result_note': note});
                             }
                           },
                     style: FilledButton.styleFrom(backgroundColor: AppColors.emerald),
