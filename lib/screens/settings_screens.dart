@@ -243,9 +243,18 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
   bool loading = true;
   String? error;
   Map<String, dynamic> settings = {};
-  bool locked = false;
+  Map<String, dynamic> flutterwaveKeys = {};
+  bool checkoutEnabled = true;
+  bool rechargeEnabled = true;
+  bool withdrawalEnabled = true;
+  bool flutterwaveLocked = false;
+  bool savingKeys = false;
+  bool verifyingKeys = false;
   final _percent = TextEditingController();
   final _flat = TextEditingController();
+  final _flwPublic = TextEditingController();
+  final _flwSecret = TextEditingController();
+  final _flwHash = TextEditingController();
 
   @override
   void initState() {
@@ -257,6 +266,9 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
   void dispose() {
     _percent.dispose();
     _flat.dispose();
+    _flwPublic.dispose();
+    _flwSecret.dispose();
+    _flwHash.dispose();
     super.dispose();
   }
 
@@ -265,7 +277,19 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
       final data = await context.read<AdminStore>().getJson('/admin/settings/paystack');
       if (!mounted) return;
       settings = asMap(data['settings']);
-      locked = data['payments_locked'] == true;
+      flutterwaveKeys = asMap(data['flutterwave_keys']);
+      final payments = asMap(data['paystack_payments']);
+      final locked = data['payments_locked'] == true;
+      if (payments.isNotEmpty) {
+        checkoutEnabled = payments['checkout_enabled'] == true;
+        rechargeEnabled = payments['recharge_enabled'] == true;
+        withdrawalEnabled = payments['withdrawal_enabled'] == true;
+      } else {
+        checkoutEnabled = !locked;
+        rechargeEnabled = !locked;
+        withdrawalEnabled = true;
+      }
+      flutterwaveLocked = data['flutterwave_locked'] == true;
       _percent.text = str(settings['percent'], '0');
       _flat.text = str(settings['flat'], '0');
       setState(() => loading = false);
@@ -278,10 +302,24 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
     }
   }
 
+  Future<void> _savePaystackFlags({bool? checkout, bool? recharge, bool? withdrawal}) async {
+    try {
+      await context.read<AdminStore>().postJson('/admin/settings/paystack/lock', data: {
+        'checkout_enabled': checkout ?? checkoutEnabled,
+        'recharge_enabled': recharge ?? rechargeEnabled,
+        'withdrawal_enabled': withdrawal ?? withdrawalEnabled,
+      });
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Paystack')),
+      appBar: AppBar(title: const Text('Paystack / Flutterwave')),
       body: loading
           ? const FullPageLoader()
           : error != null
@@ -290,11 +328,29 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     SwitchListTile(
-                      title: const Text('Disable Paystack checkout'),
-                      value: locked,
+                      title: const Text('Paystack checkout'),
+                      subtitle: const Text('Show Paystack on order payment'),
+                      value: checkoutEnabled,
+                      onChanged: (value) => _savePaystackFlags(checkout: value),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Paystack wallet recharge'),
+                      subtitle: const Text('Show Paystack on top-up, like RMB deposit'),
+                      value: rechargeEnabled,
+                      onChanged: (value) => _savePaystackFlags(recharge: value),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Paystack withdrawals'),
+                      subtitle: const Text('Allow Paystack payouts. Manual mark-paid still works.'),
+                      value: withdrawalEnabled,
+                      onChanged: (value) => _savePaystackFlags(withdrawal: value),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Disable Flutterwave deposits'),
+                      value: flutterwaveLocked,
                       onChanged: (value) async {
                         try {
-                          await context.read<AdminStore>().postJson('/admin/settings/paystack/lock', data: {'locked': value});
+                          await context.read<AdminStore>().postJson('/admin/settings/flutterwave/lock', data: {'locked': value});
                           await _load();
                         } on ApiException catch (e) {
                           if (!context.mounted) return;
@@ -302,6 +358,91 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
                         }
                       },
                     ),
+                    const SizedBox(height: 8),
+                    Text('Flutterwave API keys', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    Text(
+                      flutterwaveKeys['configured'] == true
+                          ? 'Current: ${str(flutterwaveKeys['public_key_masked'], 'set')}'
+                          : 'No keys set. Deposits fail with Invalid authorization key.',
+                      style: const TextStyle(color: AppColors.textSecondary, height: 1.35),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _flwPublic,
+                      decoration: const InputDecoration(
+                        labelText: 'Public key',
+                        hintText: 'FLWPUBK-…-X',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _flwSecret,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Secret key',
+                        hintText: 'FLWSECK-…-X',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _flwHash,
+                      decoration: const InputDecoration(
+                        labelText: 'Webhook hash (optional)',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                      label: savingKeys ? 'Saving…' : 'Save Flutterwave keys',
+                      onPressed: savingKeys
+                          ? null
+                          : () async {
+                              setState(() => savingKeys = true);
+                              try {
+                                final result = await context.read<AdminStore>().postJson('/admin/settings/flutterwave/keys', data: {
+                                  'public_key': _flwPublic.text.trim(),
+                                  'secret_key': _flwSecret.text.trim(),
+                                  'webhook_hash': _flwHash.text.trim(),
+                                  'verify': true,
+                                });
+                                if (!context.mounted) return;
+                                _flwPublic.clear();
+                                _flwSecret.clear();
+                                _flwHash.clear();
+                                showSnack(context, str(result['message'], 'Saved.'));
+                                await _load();
+                              } on ApiException catch (e) {
+                                if (!context.mounted) return;
+                                showSnack(context, e.message, error: true);
+                                await _load();
+                              } finally {
+                                if (mounted) setState(() => savingKeys = false);
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: verifyingKeys
+                          ? null
+                          : () async {
+                              setState(() => verifyingKeys = true);
+                              try {
+                                final result = await context.read<AdminStore>().postJson('/admin/settings/flutterwave/keys/verify', data: {
+                                  'secret_key': _flwSecret.text.trim(),
+                                });
+                                if (!context.mounted) return;
+                                showSnack(context, str(result['message'], 'Checked.'));
+                              } on ApiException catch (e) {
+                                if (!context.mounted) return;
+                                showSnack(context, e.message, error: true);
+                              } finally {
+                                if (mounted) setState(() => verifyingKeys = false);
+                              }
+                            },
+                      child: Text(verifyingKeys ? 'Checking…' : 'Verify keys with Flutterwave'),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
                     SwitchListTile(
                       title: const Text('Fee enabled'),
                       value: settings['enabled'] == true,

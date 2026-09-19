@@ -1613,7 +1613,7 @@ class _TransferDetailState extends State<_TransferDetail> {
     }).toList();
     final funding = str(item['funding_source']);
     final paymentProof = str(item['payment_proof_url']);
-    final proofs = asMaps(item['proofs']);
+    final proofs = asMaps(item['proofs']).where((p) => str(p['type']) != 'payment_received').toList();
     final canUploadProofAndComplete = item['can_upload_proof_and_complete'] == true;
     final isSell = str(item['flow']) == 'sell_rmb';
     // Sell RMB: MoMo proof is optional — use Process → Complete, not forced upload.
@@ -1957,15 +1957,17 @@ class _TransferDetailState extends State<_TransferDetail> {
                                   child: const Icon(Icons.check_circle_outline, color: AppColors.emerald),
                                 ),
                                 const SizedBox(width: 12),
-                                const Expanded(
+                                Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('Complete transfer', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-                                      SizedBox(height: 4),
+                                      const Text('Complete transfer', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                                      const SizedBox(height: 4),
                                       Text(
-                                        'Send Alipay RMB, then Complete. Proof screenshot is optional.',
-                                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+                                        isSell
+                                            ? 'Send MoMo GHS, then Complete. Proof screenshot is optional — same as Buy RMB.'
+                                            : 'Send Alipay RMB, then Complete. Proof screenshot is optional.',
+                                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.35),
                                       ),
                                     ],
                                   ),

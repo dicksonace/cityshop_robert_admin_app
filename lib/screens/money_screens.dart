@@ -573,17 +573,6 @@ class _WithdrawalCard extends StatelessWidget {
                       icon: const Icon(Icons.close_rounded),
                     ),
                   ],
-                  if (status == 'processing' && str(item['payout_channel']) != 'paystack') ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => onAct('/admin/withdrawals/$id/paystack'),
-                        style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0F766E)),
-                        icon: const Icon(Icons.send_rounded, size: 18),
-                        label: const Text('Paystack'),
-                      ),
-                    ),
-                  ],
                   if (status == 'processing') ...[
                     const SizedBox(width: 8),
                     Expanded(
