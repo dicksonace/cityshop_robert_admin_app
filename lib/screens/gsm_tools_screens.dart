@@ -184,10 +184,19 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                             color: AppColors.textSecondary,
                           ),
                         ),
-                        SelectableText(
-                          str(field['value'], '—'),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
+                        if (str(field['type']) == 'image' && str(field['value']).startsWith('http'))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(str(field['value']), height: 180, fit: BoxFit.cover),
+                            ),
+                          )
+                        else
+                          SelectableText(
+                            str(field['value'], '—'),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
                       ],
                     ),
                   ),
