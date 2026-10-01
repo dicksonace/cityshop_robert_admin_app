@@ -31,6 +31,14 @@ class AdminUser {
   }
 }
 
+class PendingMfa {
+  const PendingMfa({required this.token, required this.methods, this.emailHint});
+
+  final String token;
+  final List<String> methods;
+  final String? emailHint;
+}
+
 class AdminStore extends ChangeNotifier {
   AdminStore(this.api);
 
@@ -85,7 +93,7 @@ class AdminStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> login({
+  Future<PendingMfa?> login({
     required String login,
     required String password,
   }) async {
@@ -95,12 +103,21 @@ class AdminStore extends ChangeNotifier {
       'portal': 'admin',
       'device_name': ApiConfig.deviceName,
     });
-    final token = res.data['token'] as String?;
+    final body = Map<String, dynamic>.from(res.data as Map);
+    if (body['mfa_required'] == true) {
+      final methods = (body['methods'] as List? ?? []).map((item) => '$item').toList();
+      return PendingMfa(
+        token: '${body['mfa_token']}',
+        methods: methods.isEmpty ? const ['email'] : methods,
+        emailHint: body['email_hint']?.toString(),
+      );
+    }
+    final token = body['token'] as String?;
     if (token == null || token.isEmpty) {
       throw ApiException('Login succeeded but no token returned.');
     }
     await api.saveToken(token);
-    final userJson = res.data['user'];
+    final userJson = body['user'];
     if (userJson is Map) {
       user = AdminUser.fromJson(Map<String, dynamic>.from(userJson));
     } else {
@@ -112,6 +129,72 @@ class AdminStore extends ChangeNotifier {
       throw ApiException('This account is not an administrator.');
     }
     notifyListeners();
+    return null;
+  }
+
+  Future<void> completeMfa({
+    required String token,
+    required String method,
+    required String code,
+  }) async {
+    final res = await api.post('/auth/login/mfa', data: {
+      'mfa_token': token,
+      'method': method,
+      'code': code,
+      'device_name': ApiConfig.deviceName,
+    });
+    final body = Map<String, dynamic>.from(res.data as Map);
+    final authToken = body['token'] as String?;
+    if (authToken == null || authToken.isEmpty) {
+      throw ApiException('Login succeeded but no token returned.');
+    }
+    await api.saveToken(authToken);
+    final userJson = body['user'];
+    if (userJson is Map) {
+      user = AdminUser.fromJson(Map<String, dynamic>.from(userJson));
+    } else {
+      await refreshMe();
+    }
+    if (!isLoggedIn) {
+      await api.clearToken();
+      user = null;
+      throw ApiException('This account is not an administrator.');
+    }
+    notifyListeners();
+  }
+
+  Future<void> resendMfaEmail(String token) async {
+    await api.post('/auth/login/mfa/email', data: {'mfa_token': token});
+  }
+
+  Future<Map<String, dynamic>> loadMfa() async {
+    final body = await getJson('/mfa');
+    final mfa = body['mfa'];
+    return mfa is Map ? Map<String, dynamic>.from(mfa) : body;
+  }
+
+  Future<void> sendMfaEmail(String password) async {
+    await postJson('/mfa/email', data: {'password': password});
+  }
+
+  Future<void> confirmMfaEmail(String code) async {
+    await postJson('/mfa/email/confirm', data: {'code': code});
+  }
+
+  Future<void> disableMfaEmail(String password) async {
+    await deleteJson('/mfa/email', data: {'password': password});
+  }
+
+  Future<Map<String, dynamic>> startMfaTotp(String password) async {
+    return postJson('/mfa/totp', data: {'password': password});
+  }
+
+  Future<void> confirmMfaTotp(String code) async {
+    await postJson('/mfa/totp/confirm', data: {'code': code});
+  }
+
+  Future<void> disableMfaTotp(String password) async {
+    await deleteJson('/mfa/totp', data: {'password': password});
   }
 
   Future<void> logout() async {

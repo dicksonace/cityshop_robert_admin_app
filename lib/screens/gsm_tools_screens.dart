@@ -372,3 +372,311 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
     );
   }
 }
+
+const _gsmGroups = <String, String>{
+  'imei': 'IMEI Service',
+  'server': 'Server Service',
+  'remote': 'Remote Service',
+  'file': 'File Service',
+  'credit': 'Credit | Box Activation',
+};
+
+class _BuyerFieldDraft {
+  _BuyerFieldDraft({this.type = 'text', this.required = true, String label = '', String placeholder = ''}) {
+    this.label.text = label;
+    this.placeholder.text = placeholder;
+  }
+
+  final label = TextEditingController();
+  final placeholder = TextEditingController();
+  String type;
+  bool required;
+
+  void dispose() {
+    label.dispose();
+    placeholder.dispose();
+  }
+}
+
+class GsmServiceGroupScreen extends StatefulWidget {
+  const GsmServiceGroupScreen({super.key, required this.type});
+
+  final String type;
+
+  @override
+  State<GsmServiceGroupScreen> createState() => _GsmServiceGroupScreenState();
+}
+
+class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
+  bool loading = true;
+  bool saving = false;
+  String? error;
+  List<Map<String, dynamic>> services = [];
+  List<Map<String, dynamic>> groups = [];
+  final name = TextEditingController();
+  final categoryName = TextEditingController();
+  final price = TextEditingController(text: '50');
+  String? groupId;
+  final fields = <_BuyerFieldDraft>[_BuyerFieldDraft()];
+
+  String get title => _gsmGroups[widget.type] ?? 'GSM Service';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    name.dispose();
+    categoryName.dispose();
+    price.dispose();
+    for (final field in fields) {
+      field.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final data = await context.read<AdminStore>().getJson(
+            '/admin/gsm-tools/services',
+            query: {'type': widget.type},
+          );
+      if (!mounted) return;
+      setState(() {
+        services = asMaps(data['services']);
+        groups = asMaps(data['groups']);
+        loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        error = e.message;
+        loading = false;
+      });
+    }
+  }
+
+  Future<void> _createCategory() async {
+    if (categoryName.text.trim().isEmpty) {
+      showSnack(context, 'Add a category name');
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await context.read<AdminStore>().postJson('/admin/gsm-tools/groups', data: {
+        'name': categoryName.text.trim(),
+        'service_type': widget.type,
+        'active': true,
+      });
+      categoryName.clear();
+      if (!mounted) return;
+      showSnack(context, 'Category added');
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _create() async {
+    if (name.text.trim().isEmpty) {
+      showSnack(context, 'Add a service name');
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await context.read<AdminStore>().postJson('/admin/gsm-tools/services', data: {
+        'name': name.text.trim(),
+        'service_type': widget.type,
+        'price_ghs': price.text.trim(),
+        'active': true,
+        if (groupId != null && groupId!.isNotEmpty) 'gsm_service_group_id': groupId,
+        'fields': [
+          for (final field in fields)
+            if (field.label.text.trim().isNotEmpty)
+              {
+                'label': field.label.text.trim(),
+                'placeholder': field.placeholder.text.trim(),
+                'type': field.type,
+                'required': field.required,
+              },
+        ],
+      });
+      name.clear();
+      if (!mounted) return;
+      showSnack(context, '$title created');
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          TextButton(
+            onPressed: () => context.push('/gsm-tools/orders'),
+            child: const Text('Orders'),
+          ),
+        ],
+      ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
+                const Text('GSM Tools', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.accent)),
+                const SizedBox(height: 4),
+                Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 12),
+                TextField(controller: categoryName, decoration: const InputDecoration(labelText: 'Category (e.g. Galaxy Multi Tool)')),
+                const SizedBox(height: 8),
+                PrimaryButton(
+                  label: 'Add category',
+                  loading: saving,
+                  onPressed: saving ? null : _createCategory,
+                ),
+                const SizedBox(height: 16),
+                TextField(controller: name, decoration: const InputDecoration(labelText: 'Service name')),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: groupId,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('No category')),
+                    ...groups.map((group) => DropdownMenuItem(value: '${group['id']}', child: Text('${group['name']}'))),
+                  ],
+                  onChanged: (value) => setState(() => groupId = value),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: price,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Price (GHS)'),
+                ),
+                const SizedBox(height: 12),
+                const Text('What should the buyer submit?', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Each service has its own form. Add Username, Password, Mobile, Email — whatever this tool needs.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final preset in [
+                      ('Username', 'text', true),
+                      ('Password', 'password', false),
+                      ('Mobile', 'phone', true),
+                      ('Email', 'email', true),
+                      ('IMEI', 'text', true),
+                      ('Serial', 'text', true),
+                    ])
+                      ActionChip(
+                        label: Text('+ ${preset.$1}'),
+                        onPressed: () => setState(() {
+                          fields.add(_BuyerFieldDraft(label: preset.$1, placeholder: preset.$1, type: preset.$2, required: preset.$3));
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < fields.length; i++) ...[
+                  TextField(
+                    controller: fields[i].label,
+                    decoration: const InputDecoration(labelText: 'Name of field'),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: fields[i].placeholder,
+                    decoration: const InputDecoration(labelText: 'Placeholder shown to buyer'),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: fields[i].type,
+                          decoration: const InputDecoration(labelText: 'Type'),
+                          items: const [
+                            DropdownMenuItem(value: 'text', child: Text('Text')),
+                            DropdownMenuItem(value: 'password', child: Text('Password')),
+                            DropdownMenuItem(value: 'phone', child: Text('Mobile')),
+                            DropdownMenuItem(value: 'email', child: Text('Email')),
+                            DropdownMenuItem(value: 'number', child: Text('Number')),
+                            DropdownMenuItem(value: 'textarea', child: Text('Long text')),
+                            DropdownMenuItem(value: 'image', child: Text('Photo')),
+                          ],
+                          onChanged: (value) => setState(() => fields[i].type = value ?? 'text'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        children: [
+                          const Text('Required', style: TextStyle(fontSize: 12)),
+                          Switch(
+                            value: fields[i].required,
+                            onChanged: (value) => setState(() => fields[i].required = value),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        onPressed: () => setState(() {
+                          fields[i].dispose();
+                          fields.removeAt(i);
+                        }),
+                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextButton.icon(
+                  onPressed: () => setState(() => fields.add(_BuyerFieldDraft())),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add another Field'),
+                ),
+                const SizedBox(height: 8),
+                PrimaryButton(
+                  label: 'Create $title',
+                  loading: saving,
+                  onPressed: saving ? null : _create,
+                ),
+                const SizedBox(height: 24),
+                if (services.isEmpty)
+                  Text(
+                    'No $title yet. Add the first one. You can send more details later.',
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                for (final service in services)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('${service['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: Text(
+                      [
+                        money.format(asDouble(service['price_ghs'])),
+                        ...(((service['fields'] as List?) ?? []).map((e) => '${(e as Map)['label'] ?? ''}')).where((s) => s.isNotEmpty),
+                      ].join(' · '),
+                    ),
+                    trailing: Text(service['active'] == true ? 'Active' : 'Off'),
+                  ),
+              ],
+            ),
+    );
+  }
+}

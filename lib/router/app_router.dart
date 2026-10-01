@@ -100,7 +100,12 @@ GoRouter createRouter(AdminStore store) {
         path: '/china-transfers/:id',
         builder: (_, state) => ChinaTransferDetailScreen(id: int.parse(state.pathParameters['id']!)),
       ),
-      GoRoute(path: '/gsm-tools', builder: (_, _) => const GsmToolsScreen()),
+      GoRoute(path: '/gsm-tools', redirect: (_, _) => '/gsm-tools/orders'),
+      GoRoute(path: '/gsm-tools/orders', builder: (_, _) => const GsmToolsScreen()),
+      GoRoute(
+        path: '/gsm-tools/services/:type',
+        builder: (_, state) => GsmServiceGroupScreen(type: state.pathParameters['type'] ?? 'imei'),
+      ),
       GoRoute(
         path: '/gsm-tools/:id',
         builder: (_, state) => GsmToolDetailScreen(id: int.parse(state.pathParameters['id']!)),
@@ -112,6 +117,7 @@ GoRouter createRouter(AdminStore store) {
       ),
       GoRoute(path: '/china-settings', builder: (_, _) => const ChinaSettingsScreen()),
       GoRoute(path: '/sell-rmb-settings', builder: (_, _) => const SellRmbSettingsScreen()),
+      GoRoute(path: '/settings/security', builder: (_, _) => const SecurityScreen()),
       GoRoute(path: '/settings/sms', builder: (_, _) => const SmsSettingsScreen()),
       GoRoute(path: '/settings/paystack', builder: (_, _) => const PaystackSettingsScreen()),
       GoRoute(path: '/settings/withdrawal', builder: (_, _) => const WithdrawalSettingsScreen()),

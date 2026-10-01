@@ -8,6 +8,7 @@ import '../api/api_client.dart';
 import '../store/admin_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/otp_code_boxes.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -385,13 +386,17 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _login = TextEditingController();
   final _password = TextEditingController();
+  final _code = TextEditingController();
   bool _loading = false;
   bool _obscure = true;
+  PendingMfa? _pending;
+  String _method = 'email';
 
   @override
   void dispose() {
     _login.dispose();
     _password.dispose();
+    _code.dispose();
     super.dispose();
   }
 
@@ -402,9 +407,41 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() => _loading = true);
     try {
-      await context.read<AdminStore>().login(
+      final pending = await context.read<AdminStore>().login(
             login: _login.text.trim(),
             password: _password.text,
+          );
+      if (pending != null) {
+        if (!mounted) return;
+        setState(() {
+          _pending = pending;
+          _method = pending.methods.contains('email') ? 'email' : 'totp';
+        });
+        return;
+      }
+      if (!mounted) return;
+      context.go('/home');
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _submitCode() async {
+    if (_loading) return;
+    final pending = _pending;
+    if (pending == null || _code.text.trim().length < 6) {
+      showSnack(context, 'Enter the 6-digit code');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await context.read<AdminStore>().completeMfa(
+            token: pending.token,
+            method: _method,
+            code: _code.text.trim(),
           );
       if (!mounted) return;
       context.go('/home');
@@ -418,6 +455,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_pending != null) {
+      return _codeStep();
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -494,6 +534,79 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _codeStep() {
+    final pending = _pending!;
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => setState(() => _pending = null),
+        ),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text('Enter your sign-in code', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            const Text('Password accepted. Finish with the method you turned on.'),
+            if (pending.methods.length > 1) ...[
+              const SizedBox(height: 16),
+              SegmentedButton<String>(
+                segments: [
+                  if (pending.methods.contains('email')) const ButtonSegment(value: 'email', label: Text('Email')),
+                  if (pending.methods.contains('totp')) const ButtonSegment(value: 'totp', label: Text('Authenticator')),
+                ],
+                selected: {_method},
+                onSelectionChanged: (value) {
+                  _code.clear();
+                  setState(() => _method = value.first);
+                },
+              ),
+            ],
+            const SizedBox(height: 16),
+            Text(
+              _method == 'email' ? 'Email code' : 'Authenticator code',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            OtpCodeBoxes(controller: _code, onCompleted: (_) => _submitCode()),
+            const SizedBox(height: 8),
+            Text(
+              _method == 'email'
+                  ? 'Sent to ${pending.emailHint ?? 'your email'}. Gmail works too.'
+                  : 'Code from the app you scanned.',
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            PrimaryButton(
+              label: 'Continue',
+              loading: _loading,
+              onPressed: _submitCode,
+            ),
+            if (_method == 'email')
+              TextButton(
+                onPressed: _loading
+                    ? null
+                    : () async {
+                        try {
+                          await context.read<AdminStore>().resendMfaEmail(pending.token);
+                          if (!mounted) return;
+                          showSnack(context, 'A new code was emailed.');
+                        } on ApiException catch (e) {
+                          if (!mounted) return;
+                          showSnack(context, e.message, error: true);
+                        }
+                      },
+                child: const Text('Send a new email code'),
+              ),
+          ],
         ),
       ),
     );

@@ -263,7 +263,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               value: '${stats['pending_gsm'] ?? 0}',
                               bg: const Color(0xFFEDE9FE),
                               fg: const Color(0xFF6D28D9),
-                              onTap: () => _go('/gsm-tools'),
+                              onTap: () => _go('/gsm-tools/orders'),
                             ),
                           ),
                           const SizedBox(width: 8),
