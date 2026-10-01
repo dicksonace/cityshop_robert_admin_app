@@ -540,6 +540,30 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
     }
   }
 
+  Future<void> _deleteCategory(Map<String, dynamic> group) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Delete this category?',
+      body: '“${group['name']}” will be removed. Services in it stay, with no category.',
+      action: 'Delete',
+    );
+    if (!ok || !mounted) return;
+    setState(() => saving = true);
+    try {
+      await context.read<AdminStore>().deleteJson('/admin/gsm-tools/groups/${group['id']}');
+      if (!mounted) return;
+      if (groupId == '${group['id']}') {
+        setState(() => groupId = '');
+      }
+      showSnack(context, 'Category deleted');
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Map<String, dynamic> _servicePayload() => {
         'name': name.text.trim(),
         'service_type': widget.type,
@@ -725,6 +749,31 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                   loading: saving,
                   onPressed: saving ? null : _createCategory,
                 ),
+                if (groups.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('Categories', style: TextStyle(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  for (final group in groups)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: const BorderSide(color: Color(0xFFE5E7EB)),
+                        ),
+                        child: ListTile(
+                          leading: GsmAdminLogo(url: '${group['image_url'] ?? ''}', size: 40),
+                          title: Text('${group['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                          trailing: IconButton(
+                            tooltip: 'Delete category',
+                            onPressed: saving ? null : () => _deleteCategory(group),
+                            icon: const Icon(Icons.delete_outline, color: Color(0xFFB91C1C)),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
                 const SizedBox(height: 16),
                 TextField(controller: name, decoration: const InputDecoration(labelText: 'Service name')),
                 const SizedBox(height: 8),
@@ -898,37 +947,143 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                     style: const TextStyle(color: AppColors.textSecondary),
                   ),
                 for (final service in services)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: GsmAdminLogo(url: '${service['image_url'] ?? ''}'),
-                    title: Text('${service['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: Text(
-                      [
-                        money.format(asDouble(service['price_ghs'])),
-                        '${service['eta_label'] ?? 'INSTANT'}',
-                        service['allow_quantity'] == true
-                            ? 'Qty ${service['min_qty']}-${service['max_qty']}'
-                            : 'No quantity',
-                        ...(((service['fields'] as List?) ?? []).map((e) => '${(e as Map)['label'] ?? ''}')).where((s) => s.isNotEmpty),
-                      ].join(' · '),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextButton(
-                          onPressed: () => _startEdit(service),
-                          child: const Text('Edit'),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Material(
+                      color: Colors.white,
+                      elevation: 1,
+                      shadowColor: const Color(0x140F172A),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        side: const BorderSide(color: Color(0xFFE5E7EB)),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                GsmAdminLogo(url: '${service['image_url'] ?? ''}', size: 52),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${service['name']}',
+                                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, height: 1.2),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _SolidChip(
+                                            label: money.format(asDouble(service['price_ghs'])),
+                                            background: const Color(0xFFECFDF5),
+                                            foreground: const Color(0xFF065F46),
+                                          ),
+                                          _SolidChip(
+                                            label: '${service['eta_label'] ?? 'INSTANT'}'.toUpperCase(),
+                                            background: const Color(0xFFEFF6FF),
+                                            foreground: const Color(0xFF1D4ED8),
+                                          ),
+                                          _SolidChip(
+                                            label: service['allow_quantity'] == true
+                                                ? 'QTY ${service['min_qty']}-${service['max_qty']}'
+                                                : 'NO QUANTITY',
+                                            background: const Color(0xFFF3F4F6),
+                                            foreground: const Color(0xFF374151),
+                                          ),
+                                          _SolidChip(
+                                            label: service['active'] == false ? 'INACTIVE' : 'ACTIVE',
+                                            background: service['active'] == false ? const Color(0xFFFEF2F2) : const Color(0xFFFFF7ED),
+                                            foreground: service['active'] == false ? const Color(0xFFB91C1C) : const Color(0xFFC2410C),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (((service['fields'] as List?) ?? []).isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final field in (service['fields'] as List))
+                                    if ('${(field as Map)['label'] ?? ''}'.trim().isNotEmpty)
+                                      _SolidChip(
+                                        label: '${field['label']}',
+                                        background: const Color(0xFFFFF7ED),
+                                        foreground: const Color(0xFF9A3412),
+                                      ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: () => _startEdit(service),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: const Color(0xFFEA580C),
+                                      minimumSize: const Size.fromHeight(42),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    child: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w800)),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  height: 42,
+                                  width: 42,
+                                  child: IconButton.filled(
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: const Color(0xFFFEF2F2),
+                                      foregroundColor: const Color(0xFFB91C1C),
+                                    ),
+                                    onPressed: () => _delete(service),
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          tooltip: 'Delete service',
-                          onPressed: () => _delete(service),
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
               ],
             ),
+    );
+  }
+}
+
+class _SolidChip extends StatelessWidget {
+  const _SolidChip({required this.label, required this.background, required this.foreground});
+
+  final String label;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: foreground, letterSpacing: 0.2),
+      ),
     );
   }
 }
