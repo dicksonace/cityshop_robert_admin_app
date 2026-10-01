@@ -1,8 +1,11 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../api/api_config.dart';
 import '../store/admin_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -21,6 +24,7 @@ class GsmToolsScreen extends StatelessWidget {
       filterLabelFor: (option) => option[0].toUpperCase() + option.substring(1),
       itemBuilder: (item, _) => ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: GsmAdminLogo(url: str(item['image_url'])),
         title: Text(
           str(item['service_name'], 'GSM service'),
           style: const TextStyle(fontWeight: FontWeight.w800),
@@ -153,9 +157,18 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(error!, style: const TextStyle(color: Colors.red)),
                   ),
-                Text(
-                  str(order['service_name'], 'GSM service'),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GsmAdminLogo(url: str(order['image_url']), size: 52),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        str(order['service_name'], 'GSM service'),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -382,11 +395,12 @@ const _gsmGroups = <String, String>{
 };
 
 class _BuyerFieldDraft {
-  _BuyerFieldDraft({this.type = 'text', this.required = true, String label = '', String placeholder = ''}) {
+  _BuyerFieldDraft({this.id, this.type = 'text', this.required = true, String label = '', String placeholder = ''}) {
     this.label.text = label;
     this.placeholder.text = placeholder;
   }
 
+  final int? id;
   final label = TextEditingController();
   final placeholder = TextEditingController();
   String type;
@@ -415,8 +429,17 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
   List<Map<String, dynamic>> groups = [];
   final name = TextEditingController();
   final categoryName = TextEditingController();
+  final description = TextEditingController();
+  final eta = TextEditingController(text: 'INSTANT');
   final price = TextEditingController(text: '50');
+  final minQty = TextEditingController(text: '1');
+  final maxQty = TextEditingController(text: '10');
   String? groupId;
+  bool allowQuantity = false;
+  int? editingId;
+  String? logoPath;
+  String existingLogoUrl = '';
+  String? categoryLogoPath;
   final fields = <_BuyerFieldDraft>[_BuyerFieldDraft()];
 
   String get title => _gsmGroups[widget.type] ?? 'GSM Service';
@@ -431,7 +454,11 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
   void dispose() {
     name.dispose();
     categoryName.dispose();
+    description.dispose();
+    eta.dispose();
     price.dispose();
+    minQty.dispose();
+    maxQty.dispose();
     for (final field in fields) {
       field.dispose();
     }
@@ -470,12 +497,26 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
     }
     setState(() => saving = true);
     try {
-      await context.read<AdminStore>().postJson('/admin/gsm-tools/groups', data: {
-        'name': categoryName.text.trim(),
-        'service_type': widget.type,
-        'active': true,
-      });
+      if (categoryLogoPath != null) {
+        await context.read<AdminStore>().postForm(
+          '/admin/gsm-tools/groups',
+          {
+            'name': categoryName.text.trim(),
+            'service_type': widget.type,
+            'active': true,
+          },
+          fileField: 'image',
+          filePath: categoryLogoPath,
+        );
+      } else {
+        await context.read<AdminStore>().postJson('/admin/gsm-tools/groups', data: {
+          'name': categoryName.text.trim(),
+          'service_type': widget.type,
+          'active': true,
+        });
+      }
       categoryName.clear();
+      categoryLogoPath = null;
       if (!mounted) return;
       showSnack(context, 'Category added');
       await _load();
@@ -486,6 +527,102 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
     }
   }
 
+  Map<String, dynamic> _servicePayload() => {
+        'name': name.text.trim(),
+        'service_type': widget.type,
+        'description': description.text.trim(),
+        'eta_label': eta.text.trim().isEmpty ? 'INSTANT' : eta.text.trim(),
+        'price_ghs': price.text.trim(),
+        'allow_quantity': allowQuantity,
+        'min_qty': int.tryParse(minQty.text.trim()) ?? 1,
+        'max_qty': int.tryParse(maxQty.text.trim()) ?? 10,
+        'active': true,
+        if (groupId != null && groupId!.isNotEmpty) 'gsm_service_group_id': groupId,
+        'fields': [
+          for (final field in fields)
+            if (field.label.text.trim().isNotEmpty)
+              {
+                if (field.id != null) 'id': field.id,
+                'label': field.label.text.trim(),
+                'placeholder': field.placeholder.text.trim(),
+                'type': field.type,
+                'required': field.required,
+                'active': true,
+              },
+        ],
+      };
+
+  Map<String, dynamic> _flattenServicePayload(Map<String, dynamic> payload) {
+    final fields = <String, dynamic>{};
+    payload.forEach((key, value) {
+      if (key == 'fields' && value is List) {
+        for (var i = 0; i < value.length; i++) {
+          final row = Map<String, dynamic>.from(value[i] as Map);
+          row.forEach((k, v) {
+            fields['fields[$i][$k]'] = v is bool ? (v ? '1' : '0') : v;
+          });
+        }
+      } else if (value is bool) {
+        fields[key] = value ? '1' : '0';
+      } else if (value != null) {
+        fields[key] = value;
+      }
+    });
+    return fields;
+  }
+
+  void _resetForm() {
+    editingId = null;
+    name.clear();
+    description.clear();
+    eta.text = 'INSTANT';
+    price.text = '50';
+    minQty.text = '1';
+    maxQty.text = '10';
+    allowQuantity = false;
+    groupId = null;
+    logoPath = null;
+    existingLogoUrl = '';
+    for (final field in fields) {
+      field.dispose();
+    }
+    fields
+      ..clear()
+      ..add(_BuyerFieldDraft());
+  }
+
+  void _startEdit(Map<String, dynamic> service) {
+    for (final field in fields) {
+      field.dispose();
+    }
+    final existing = ((service['fields'] as List?) ?? [])
+        .whereType<Map>()
+        .map((row) => _BuyerFieldDraft(
+              id: row['id'] as int?,
+              label: '${row['label'] ?? ''}',
+              placeholder: '${row['placeholder'] ?? ''}',
+              type: '${row['type'] ?? 'text'}',
+              required: row['required'] == true,
+            ))
+        .toList();
+    setState(() {
+      editingId = service['id'] as int?;
+      name.text = '${service['name'] ?? ''}';
+      description.text = '${service['description'] ?? ''}';
+      eta.text = '${service['eta_label'] ?? 'INSTANT'}';
+      price.text = '${service['price_ghs'] ?? ''}';
+      allowQuantity = service['allow_quantity'] == true;
+      minQty.text = '${service['min_qty'] ?? 1}';
+      maxQty.text = '${service['max_qty'] ?? 10}';
+      groupId = service['group_id'] == null ? '' : '${service['group_id']}';
+      existingLogoUrl = '${service['image_url'] ?? ''}';
+      logoPath = null;
+      fields
+        ..clear()
+        ..addAll(existing.isEmpty ? [_BuyerFieldDraft()] : existing);
+    });
+  }
+
   Future<void> _create() async {
     if (name.text.trim().isEmpty) {
       showSnack(context, 'Add a service name');
@@ -493,26 +630,17 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
     }
     setState(() => saving = true);
     try {
-      await context.read<AdminStore>().postJson('/admin/gsm-tools/services', data: {
-        'name': name.text.trim(),
-        'service_type': widget.type,
-        'price_ghs': price.text.trim(),
-        'active': true,
-        if (groupId != null && groupId!.isNotEmpty) 'gsm_service_group_id': groupId,
-        'fields': [
-          for (final field in fields)
-            if (field.label.text.trim().isNotEmpty)
-              {
-                'label': field.label.text.trim(),
-                'placeholder': field.placeholder.text.trim(),
-                'type': field.type,
-                'required': field.required,
-              },
-        ],
-      });
-      name.clear();
+      final payload = _servicePayload();
+      final path = editingId != null ? '/admin/gsm-tools/services/$editingId' : '/admin/gsm-tools/services';
+      if (logoPath != null) {
+        await context.read<AdminStore>().postForm(path, _flattenServicePayload(payload), fileField: 'image', filePath: logoPath);
+      } else {
+        await context.read<AdminStore>().postJson(path, data: payload);
+      }
       if (!mounted) return;
-      showSnack(context, '$title created');
+      final savedEdit = editingId != null;
+      setState(_resetForm);
+      showSnack(context, savedEdit ? '$title updated' : '$title created');
       await _load();
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, error: true);
@@ -545,6 +673,15 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                 const SizedBox(height: 12),
                 TextField(controller: categoryName, decoration: const InputDecoration(labelText: 'Category (e.g. Galaxy Multi Tool)')),
                 const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+                    if (file != null) setState(() => categoryLogoPath = file.path);
+                  },
+                  icon: const Icon(Icons.image_outlined),
+                  label: Text(categoryLogoPath == null ? 'Category logo' : 'Category logo selected'),
+                ),
+                const SizedBox(height: 8),
                 PrimaryButton(
                   label: 'Add category',
                   loading: saving,
@@ -552,6 +689,31 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextField(controller: name, decoration: const InputDecoration(labelText: 'Service name')),
+                const SizedBox(height: 8),
+                if (existingLogoUrl.isNotEmpty || logoPath != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: GsmAdminLogo(url: existingLogoUrl, size: 64),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+                    if (file != null) setState(() => logoPath = file.path);
+                  },
+                  icon: const Icon(Icons.shield_outlined),
+                  label: Text(logoPath == null ? 'Service logo (web + app)' : 'Service logo selected'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: description,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Service description'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: eta,
+                  decoration: const InputDecoration(labelText: 'Delivery time', hintText: 'INSTANT, 1-24 hours…'),
+                ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: groupId,
@@ -568,6 +730,35 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(labelText: 'Price (GHS)'),
                 ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('This service uses quantity'),
+                  subtitle: const Text('Off unless the buyer should order more than one.'),
+                  value: allowQuantity,
+                  onChanged: (value) => setState(() => allowQuantity = value),
+                ),
+                if (allowQuantity) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: minQty,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: 'Minimum quantity'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: maxQty,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: 'Maximum quantity'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 const SizedBox(height: 12),
                 const Text('What should the buyer submit?', style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
@@ -652,8 +843,13 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                   label: const Text('Add another Field'),
                 ),
                 const SizedBox(height: 8),
+                if (editingId != null)
+                  TextButton(
+                    onPressed: () => setState(_resetForm),
+                    child: const Text('Cancel edit'),
+                  ),
                 PrimaryButton(
-                  label: 'Create $title',
+                  label: editingId == null ? 'Create $title' : 'Save $title',
                   loading: saving,
                   onPressed: saving ? null : _create,
                 ),
@@ -666,17 +862,49 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                 for (final service in services)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
+                    leading: GsmAdminLogo(url: '${service['image_url'] ?? ''}'),
                     title: Text('${service['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
                     subtitle: Text(
                       [
                         money.format(asDouble(service['price_ghs'])),
+                        '${service['eta_label'] ?? 'INSTANT'}',
+                        service['allow_quantity'] == true
+                            ? 'Qty ${service['min_qty']}-${service['max_qty']}'
+                            : 'No quantity',
                         ...(((service['fields'] as List?) ?? []).map((e) => '${(e as Map)['label'] ?? ''}')).where((s) => s.isNotEmpty),
                       ].join(' · '),
                     ),
-                    trailing: Text(service['active'] == true ? 'Active' : 'Off'),
+                    trailing: TextButton(
+                      onPressed: () => _startEdit(service),
+                      child: const Text('Edit'),
+                    ),
                   ),
               ],
             ),
+    );
+  }
+}
+
+class GsmAdminLogo extends StatelessWidget {
+  const GsmAdminLogo({required this.url, this.size = 44});
+
+  final String url;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolved = ApiConfig.resolveMediaUrl(url);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B1020),
+        borderRadius: BorderRadius.circular(size * 0.22),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: resolved.isEmpty
+          ? const Center(child: Icon(Icons.phonelink_setup, color: Colors.white54, size: 20))
+          : CachedNetworkImage(imageUrl: resolved, fit: BoxFit.contain),
     );
   }
 }
