@@ -20,7 +20,7 @@ class GsmToolsScreen extends StatelessWidget {
       title: 'GSM Tools',
       path: '/admin/gsm-tools',
       autoRefreshInterval: const Duration(seconds: 8),
-      filters: const ['pending', 'processing', 'completed', 'failed', 'cancelled', 'all'],
+      filters: const ['processing', 'pending', 'completed', 'failed', 'cancelled', 'all'],
       filterLabelFor: (option) => option[0].toUpperCase() + option.substring(1),
       itemBuilder: (item, _) => ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -178,11 +178,13 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                 Text(
                   '${money.format(asDouble(order['price_ghs']))} · ${str(user['name'], 'Buyer')}',
                 ),
-                Text(
-                  '${str(user['mobile'])} · ${str(user['email'])}',
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                ),
                 const SizedBox(height: 16),
+                _CopyRow(label: 'Buyer', value: str(user['name'])),
+                _CopyRow(label: 'Mobile', value: str(user['mobile'])),
+                _CopyRow(label: 'Email', value: str(user['email'])),
+                if (str(order['contact_email']).isNotEmpty && str(order['contact_email']) != str(user['email']))
+                  _CopyRow(label: 'Order email', value: str(order['contact_email'])),
+                const SizedBox(height: 12),
                 ...fields.map(
                   (field) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -200,16 +202,25 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                         if (str(field['type']) == 'image' && str(field['value']).startsWith('http'))
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.network(str(field['value']), height: 180, fit: BoxFit.cover),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.network(str(field['value']), height: 180, fit: BoxFit.cover),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Copy',
+                                  onPressed: () => copyText(context, str(field['value']), label: '${str(field['label'])} copied'),
+                                  icon: const Icon(Icons.copy_rounded, size: 18),
+                                ),
+                              ],
                             ),
                           )
                         else
-                          SelectableText(
-                            str(field['value'], '—'),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
+                          _CopyRow(label: '', value: str(field['value'], '—'), hideEmptyLabel: true),
                       ],
                     ),
                   ),
@@ -916,6 +927,58 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                   ),
               ],
             ),
+    );
+  }
+}
+
+class _CopyRow extends StatelessWidget {
+  const _CopyRow({required this.label, required this.value, this.hideEmptyLabel = false});
+
+  final String label;
+  final String value;
+  final bool hideEmptyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    if (value.trim().isEmpty || value == '—') {
+      if (hideEmptyLabel) {
+        return const SelectableText('—', style: TextStyle(fontWeight: FontWeight.w600));
+      }
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (label.isNotEmpty)
+                  Text(
+                    label.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                SelectableText(
+                  value,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => copyText(context, value, label: '${label.isEmpty ? 'Value' : label} copied'),
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text('Copy'),
+          ),
+        ],
+      ),
     );
   }
 }
