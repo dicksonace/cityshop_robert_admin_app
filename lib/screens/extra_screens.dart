@@ -499,6 +499,20 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                         _info('Joined', _formatWhen(buyer['created_at'] as String?)),
                         _info('Last seen', _formatWhen(buyer['last_seen_at'] as String?)),
                         _info('Payment PIN', buyer['has_payment_pin'] == true ? 'Set' : 'Not set'),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('China / RMB'),
+                          subtitle: const Text('Off unless this buyer should Buy RMB and Sell RMB.'),
+                          value: buyer['china_rmb_enabled'] == true,
+                          onChanged: busy
+                              ? null
+                              : (value) => _run(
+                                    () => context.read<AdminStore>().postJson(
+                                          '/admin/buyers/${widget.id}/china-rmb',
+                                          data: {'enabled': value},
+                                        ),
+                                  ),
+                        ),
                       ],
                     ),
                     Container(

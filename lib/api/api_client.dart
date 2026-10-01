@@ -205,7 +205,10 @@ class ApiClient {
           return value;
         });
         if (fileField != null && filePath != null) {
-          map[fileField] = await MultipartFile.fromFile(filePath, filename: filename);
+          map[fileField] = await MultipartFile.fromFile(
+            filePath,
+            filename: filename == 'upload.jpg' ? _uploadFileName(filePath) : filename,
+          );
         }
         return _dio.post(
           path,
@@ -218,6 +221,13 @@ class ApiClient {
       },
       maxAttempts: 2,
     );
+  }
+
+  static String _uploadFileName(String path) {
+    final name = path.split(RegExp(r'[/\\]')).last;
+    if (name.isEmpty) return 'logo.jpg';
+    if (!name.contains('.')) return '$name.jpg';
+    return name;
   }
 
   Future<Response<dynamic>> _withRetry(

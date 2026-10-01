@@ -632,15 +632,40 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
     try {
       final payload = _servicePayload();
       final path = editingId != null ? '/admin/gsm-tools/services/$editingId' : '/admin/gsm-tools/services';
-      if (logoPath != null) {
-        await context.read<AdminStore>().postForm(path, _flattenServicePayload(payload), fileField: 'image', filePath: logoPath);
-      } else {
-        await context.read<AdminStore>().postJson(path, data: payload);
-      }
+      await context.read<AdminStore>().postForm(
+            path,
+            _flattenServicePayload(payload),
+            fileField: logoPath != null ? 'image' : null,
+            filePath: logoPath,
+          );
       if (!mounted) return;
       final savedEdit = editingId != null;
       setState(_resetForm);
       showSnack(context, savedEdit ? '$title updated' : '$title created');
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> service) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Delete this service?',
+      body: 'Buyers will no longer see “${service['name']}”. Existing orders stay in history.',
+      action: 'Delete',
+    );
+    if (!ok || !mounted) return;
+    setState(() => saving = true);
+    try {
+      await context.read<AdminStore>().deleteJson('/admin/gsm-tools/services/${service['id']}');
+      if (!mounted) return;
+      if (editingId == service['id']) {
+        setState(_resetForm);
+      }
+      showSnack(context, 'Service deleted');
       await _load();
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message, error: true);
@@ -874,9 +899,19 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                         ...(((service['fields'] as List?) ?? []).map((e) => '${(e as Map)['label'] ?? ''}')).where((s) => s.isNotEmpty),
                       ].join(' · '),
                     ),
-                    trailing: TextButton(
-                      onPressed: () => _startEdit(service),
-                      child: const Text('Edit'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed: () => _startEdit(service),
+                          child: const Text('Edit'),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete service',
+                          onPressed: () => _delete(service),
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        ),
+                      ],
                     ),
                   ),
               ],

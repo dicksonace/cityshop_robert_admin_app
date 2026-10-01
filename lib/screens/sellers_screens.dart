@@ -480,6 +480,20 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                     if (status != 'pending') ...[
                       const SizedBox(height: 16),
                       const Text('Account', style: TextStyle(fontWeight: FontWeight.w800)),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('China / RMB'),
+                        subtitle: const Text('Off unless this seller should Buy RMB and Sell RMB.'),
+                        value: asMap(seller['user'])['china_rmb_enabled'] == true,
+                        onChanged: busy
+                            ? null
+                            : (value) => _run(
+                                  () => context.read<AdminStore>().postJson(
+                                        '/admin/sellers/${widget.id}/china-rmb',
+                                        data: {'enabled': value},
+                                      ),
+                                ),
+                      ),
                       const SizedBox(height: 8),
                       OutlinedButton(
                         onPressed: () => _run(
