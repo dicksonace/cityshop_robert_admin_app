@@ -178,13 +178,15 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                 Text(
                   '${money.format(asDouble(order['price_ghs']))} · ${str(user['name'], 'Buyer')}',
                 ),
-                const SizedBox(height: 16),
-                _CopyRow(label: 'Buyer', value: str(user['name'])),
-                _CopyRow(label: 'Mobile', value: str(user['mobile'])),
-                _CopyRow(label: 'Email', value: str(user['email'])),
-                if (str(order['contact_email']).isNotEmpty && str(order['contact_email']) != str(user['email']))
-                  _CopyRow(label: 'Order email', value: str(order['contact_email'])),
-                const SizedBox(height: 12),
+                if (user['id'] != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => context.push('/buyers/${user['id']}'),
+                      child: const Text('View buyer profile'),
+                    ),
+                  ),
+                const SizedBox(height: 8),
                 ...fields.map(
                   (field) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
