@@ -1208,109 +1208,69 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                   ),
                 for (final service in _visibleServices)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(bottom: 10),
                     child: Material(
                       color: Colors.white,
-                      elevation: 1,
-                      shadowColor: const Color(0x140F172A),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(16),
                         side: const BorderSide(color: Color(0xFFE5E7EB)),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                GsmAdminLogo(url: '${service['image_url'] ?? ''}', size: 52),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                            GsmAdminLogo(url: '${service['image_url'] ?? ''}', size: 52),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${service['name']}',
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, height: 1.25, color: Color(0xFF111827)),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
                                     children: [
-                                      Text(
-                                        '${service['name']}',
-                                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, height: 1.2),
+                                      _SolidChip(
+                                        label: money.format(asDouble(service['price_ghs'])),
+                                        background: const Color(0xFFECFDF5),
+                                        foreground: const Color(0xFF065F46),
+                                        compact: true,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _SolidChip(
-                                            label: money.format(asDouble(service['price_ghs'])),
-                                            background: const Color(0xFFECFDF5),
-                                            foreground: const Color(0xFF065F46),
-                                          ),
-                                          _SolidChip(
-                                            label: '${service['eta_label'] ?? 'INSTANT'}'.toUpperCase(),
-                                            background: const Color(0xFFEFF6FF),
-                                            foreground: const Color(0xFF1D4ED8),
-                                          ),
-                                          _SolidChip(
-                                            label: service['allow_quantity'] == true
-                                                ? 'QTY ${service['min_qty']}-${service['max_qty']}'
-                                                : 'NO QUANTITY',
-                                            background: const Color(0xFFF3F4F6),
-                                            foreground: const Color(0xFF374151),
-                                          ),
-                                          _SolidChip(
-                                            label: service['active'] == false ? 'INACTIVE' : 'ACTIVE',
-                                            background: service['active'] == false ? const Color(0xFFFEF2F2) : const Color(0xFFFFF7ED),
-                                            foreground: service['active'] == false ? const Color(0xFFB91C1C) : const Color(0xFFC2410C),
-                                          ),
-                                        ],
+                                      _SolidChip(
+                                        label: '${service['service_type_label'] ?? widget.type}'.toString().toUpperCase(),
+                                        background: const Color(0xFFFFF7ED),
+                                        foreground: const Color(0xFFF97316),
+                                        compact: true,
+                                      ),
+                                      _SolidChip(
+                                        label: '${service['eta_label'] ?? 'INSTANT'}'.toUpperCase(),
+                                        background: const Color(0xFFEFF6FF),
+                                        foreground: const Color(0xFF1D4ED8),
+                                        compact: true,
                                       ),
                                     ],
                                   ),
-                                ),
-                              ],
-                            ),
-                            if (((service['fields'] as List?) ?? []).isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  for (final field in (service['fields'] as List))
-                                    if ('${(field as Map)['label'] ?? ''}'.trim().isNotEmpty)
-                                      _SolidChip(
-                                        label: '${field['label']}',
-                                        background: const Color(0xFFFFF7ED),
-                                        foreground: const Color(0xFF9A3412),
-                                      ),
                                 ],
                               ),
-                            ],
-                            const SizedBox(height: 12),
-                            Row(
+                            ),
+                            Column(
                               children: [
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: () => _startEdit(service),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: const Color(0xFFEA580C),
-                                      minimumSize: const Size.fromHeight(42),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                    child: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w800)),
-                                  ),
+                                IconButton(
+                                  tooltip: 'Edit',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => _startEdit(service),
+                                  icon: const Icon(Icons.edit_outlined, color: Color(0xFFEA580C)),
                                 ),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  height: 42,
-                                  width: 42,
-                                  child: IconButton.filled(
-                                    style: IconButton.styleFrom(
-                                      backgroundColor: const Color(0xFFFEF2F2),
-                                      foregroundColor: const Color(0xFFB91C1C),
-                                    ),
-                                    onPressed: () => _delete(service),
-                                    icon: const Icon(Icons.delete_outline),
-                                  ),
+                                IconButton(
+                                  tooltip: 'Delete',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => _delete(service),
+                                  icon: const Icon(Icons.delete_outline, color: Color(0xFFB91C1C), size: 20),
                                 ),
                               ],
                             ),
@@ -1326,23 +1286,29 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
 }
 
 class _SolidChip extends StatelessWidget {
-  const _SolidChip({required this.label, required this.background, required this.foreground});
+  const _SolidChip({required this.label, required this.background, required this.foreground, this.compact = false});
 
   final String label;
   final Color background;
   final Color foreground;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 3 : 4),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(compact ? 4 : 6),
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: foreground, letterSpacing: 0.2),
+        style: TextStyle(
+          fontSize: compact ? 10 : 11,
+          fontWeight: FontWeight.w800,
+          color: foreground,
+          letterSpacing: compact ? 0.3 : 0.2,
+        ),
       ),
     );
   }
