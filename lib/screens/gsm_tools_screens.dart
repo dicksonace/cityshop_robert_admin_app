@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
@@ -22,38 +23,167 @@ class GsmToolsScreen extends StatelessWidget {
       autoRefreshInterval: const Duration(seconds: 8),
       filters: const ['processing', 'pending', 'completed', 'failed', 'cancelled', 'all'],
       filterLabelFor: (option) => option[0].toUpperCase() + option.substring(1),
-      itemBuilder: (item, _) => ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        leading: GsmAdminLogo(url: str(item['image_url'])),
-        title: Text(
-          str(item['service_name'], 'GSM service'),
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: Text(
-          '${str(item['reference'])} · ${str(asMap(item['user'])['name'], 'Buyer')}',
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              money.format(asDouble(item['price_ghs'])),
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            Text(
-              str(item['status_label'], str(item['status'])),
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
+      itemBuilder: (item, _) => _GsmOrderCard(
+        item: item,
         onTap: () => context.push('/gsm-tools/${item['id']}'),
       ),
     );
   }
+}
+
+class _GsmOrderCard extends StatelessWidget {
+  const _GsmOrderCard({required this.item, required this.onTap});
+
+  final Map<String, dynamic> item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = str(item['status']);
+    final colors = _gsmStatusColors(status);
+    final qty = asInt(item['quantity']);
+    final buyer = str(asMap(item['user'])['name'], 'Buyer');
+    final when = _gsmWhen(str(item['created_at']));
+    final eta = str(item['eta_label']).trim();
+
+    return Material(
+      color: Colors.white,
+      elevation: 1,
+      shadowColor: const Color(0x140F172A),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GsmAdminLogo(url: str(item['image_url']), size: 56),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          str(item['service_name'], 'GSM service'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, height: 1.25),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _SolidChip(
+                              label: money.format(asDouble(item['price_ghs'])),
+                              background: const Color(0xFFECFDF5),
+                              foreground: const Color(0xFF065F46),
+                            ),
+                            _SolidChip(
+                              label: str(item['status_label'], status.isEmpty ? 'Processing' : status).toUpperCase(),
+                              background: colors.$1,
+                              foreground: colors.$2,
+                            ),
+                            if (eta.isNotEmpty)
+                              _SolidChip(
+                                label: eta.toUpperCase(),
+                                background: const Color(0xFFEFF6FF),
+                                foreground: const Color(0xFF1D4ED8),
+                              ),
+                            if (qty > 1)
+                              _SolidChip(
+                                label: 'QTY $qty',
+                                background: const Color(0xFFF3F4F6),
+                                foreground: const Color(0xFF374151),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.tag_rounded, size: 14, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        str(item['reference'], '—'),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Icon(Icons.person_outline_rounded, size: 14, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        buyer,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                      ),
+                    ),
+                    if (when.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        when,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textMuted),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+(Color, Color) _gsmStatusColors(String status) {
+  switch (status) {
+    case 'completed':
+      return (const Color(0xFFECFDF5), const Color(0xFF065F46));
+    case 'failed':
+      return (const Color(0xFFFEF2F2), const Color(0xFFB91C1C));
+    case 'cancelled':
+      return (const Color(0xFFF3F4F6), const Color(0xFF4B5563));
+    case 'pending':
+      return (const Color(0xFFFEF3C7), const Color(0xFF92400E));
+    default:
+      return (const Color(0xFFFFF7ED), const Color(0xFFC2410C));
+  }
+}
+
+String _gsmWhen(String raw) {
+  final dt = DateTime.tryParse(raw);
+  if (dt == null) return '';
+  final local = dt.toLocal();
+  final diff = DateTime.now().difference(local);
+  if (diff.isNegative) return DateFormat('d MMM, h:mm a').format(local);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  return DateFormat('d MMM, h:mm a').format(local);
 }
 
 class GsmToolDetailScreen extends StatefulWidget {
@@ -137,6 +267,7 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final status = str(order['status']);
+    final statusColors = _gsmStatusColors(status);
     final open = status == 'pending' || status == 'processing';
     final user = asMap(order['user']);
     final fields = asMaps(order['fields']);
@@ -157,36 +288,83 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(error!, style: const TextStyle(color: Colors.red)),
                   ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    GsmAdminLogo(url: str(order['image_url']), size: 52),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        str(order['service_name'], 'GSM service'),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  str(order['status_label'], status),
-                  style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
-                ),
-                Text(
-                  '${money.format(asDouble(order['price_ghs']))} · ${str(user['name'], 'Buyer')}',
-                ),
-                if (user['id'] != null)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton(
-                      onPressed: () => context.push('/buyers/${user['id']}'),
-                      child: const Text('View buyer profile'),
+                Material(
+                  color: Colors.white,
+                  elevation: 1,
+                  shadowColor: const Color(0x140F172A),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            GsmAdminLogo(url: str(order['image_url']), size: 56),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    str(order['service_name'], 'GSM service'),
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, height: 1.2),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      _SolidChip(
+                                        label: money.format(asDouble(order['price_ghs'])),
+                                        background: const Color(0xFFECFDF5),
+                                        foreground: const Color(0xFF065F46),
+                                      ),
+                                      _SolidChip(
+                                        label: str(order['status_label'], status).toUpperCase(),
+                                        background: statusColors.$1,
+                                        foreground: statusColors.$2,
+                                      ),
+                                      if (str(order['eta_label']).trim().isNotEmpty)
+                                        _SolidChip(
+                                          label: str(order['eta_label']).toUpperCase(),
+                                          background: const Color(0xFFEFF6FF),
+                                          foreground: const Color(0xFF1D4ED8),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '${str(order['reference'])} · ${str(user['name'], 'Buyer')}',
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                        ),
+                        if (user['id'] != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.only(top: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => context.push('/buyers/${user['id']}'),
+                              child: const Text('View buyer profile'),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                const SizedBox(height: 8),
+                ),
+                const SizedBox(height: 14),
                 ...fields.map(
                   (field) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
