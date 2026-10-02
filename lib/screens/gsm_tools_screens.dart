@@ -31,6 +31,37 @@ class GsmToolsScreen extends StatelessWidget {
   }
 }
 
+int _gsmReplyWordCount(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return 0;
+  return trimmed.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).length;
+}
+
+bool _gsmReplyTooLong(String text) => _gsmReplyWordCount(text) > 20;
+
+class _GsmWordCount extends StatelessWidget {
+  const _GsmWordCount({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = _gsmReplyWordCount(text);
+    final over = count > 20;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        '$count/20 words',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: over ? const Color(0xFFB91C1C) : AppColors.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
 class _GsmOrderCard extends StatelessWidget {
   const _GsmOrderCard({required this.item, required this.onTap});
 
@@ -477,11 +508,13 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                   TextField(
                     controller: replyMessage,
                     maxLines: 4,
+                    onChanged: (_) => setState(() {}),
                     decoration: const InputDecoration(
                       labelText: 'Reply message',
                       hintText: 'SUCCESS — device unlocked. Paste the code or next steps.',
                     ),
                   ),
+                  _GsmWordCount(text: replyMessage.text),
                   const SizedBox(height: 8),
                   OutlinedButton(
                     onPressed: busy
@@ -494,6 +527,12 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                               );
                               return;
                             }
+                            if (_gsmReplyTooLong(text)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Reply must be 20 words or fewer so the SMS can be delivered.')),
+                              );
+                              return;
+                            }
                             await _post('reply', data: {'message': text});
                             if (mounted) replyMessage.clear();
                           },
@@ -503,11 +542,13 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                   TextField(
                     controller: resultNote,
                     maxLines: 3,
+                    onChanged: (_) => setState(() {}),
                     decoration: const InputDecoration(
                       labelText: 'Complete reply',
-                      hintText: 'Optional if you already sent a reply',
+                      hintText: 'Optional if you already sent a reply. 20 words or fewer.',
                     ),
                   ),
+                  _GsmWordCount(text: resultNote.text),
                   const SizedBox(height: 8),
                   FilledButton(
                     onPressed: busy
@@ -523,6 +564,12 @@ class _GsmToolDetailScreenState extends State<GsmToolDetailScreen> {
                               final note = resultNote.text.trim().isNotEmpty
                                   ? resultNote.text.trim()
                                   : replyMessage.text.trim();
+                              if (_gsmReplyTooLong(note)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Reply must be 20 words or fewer so the SMS can be delivered.')),
+                                );
+                                return;
+                              }
                               await _post('complete', data: {'result_note': note});
                             }
                           },
