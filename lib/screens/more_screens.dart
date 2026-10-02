@@ -75,7 +75,7 @@ class MoreScreen extends StatelessWidget {
             padding: EdgeInsets.only(top: 12, bottom: 4),
             child: Text('Settings', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
           ),
-          _tile(context, Icons.verified_user_outlined, 'Sign-in security', '/settings/security'),
+          _tile(context, Icons.verified_user_outlined, 'Google Authenticator', '/settings/security'),
           _tile(context, Icons.sms_outlined, 'SMS', '/settings/sms'),
           _tile(context, Icons.credit_card, 'Paystack / Flutterwave', '/settings/paystack'),
           _tile(context, Icons.account_balance, 'Seller bank withdrawal fees', '/settings/withdrawal'),

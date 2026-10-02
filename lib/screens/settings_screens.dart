@@ -79,10 +79,10 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sign-in security'),
+        title: const Text('Google Authenticator'),
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [Tab(text: 'Email / Gmail'), Tab(text: 'Authenticator')],
+          tabs: const [Tab(text: 'Email / Gmail'), Tab(text: 'Google Authenticator')],
         ),
       ),
       body: _loading
