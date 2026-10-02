@@ -2534,6 +2534,25 @@ class _ChinaSettingsScreenState extends State<ChinaSettingsScreen> {
                   children: [
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
+                      title: const Text('China / RMB for everyone'),
+                      subtitle: Text(
+                        data['china_rmb_globally_enabled'] == true
+                            ? 'On. Only accounts you enable can Buy RMB and Sell RMB.'
+                            : 'Off for every buyer and seller.',
+                      ),
+                      value: data['china_rmb_globally_enabled'] == true,
+                      onChanged: (value) async {
+                        try {
+                          await context.read<AdminStore>().postJson('/admin/china-rmb/access', data: {'enabled': value});
+                          await _load();
+                        } on ApiException catch (e) {
+                          if (!context.mounted) return;
+                          showSnack(context, e.message, error: true);
+                        }
+                      },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
                       title: const Text('Live for buyers'),
                       subtitle: const Text('Alipay only in China'),
                       value: enabled,

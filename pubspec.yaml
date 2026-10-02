@@ -1,7 +1,7 @@
 name: cityshop_admin
 description: CityShop administrator app — separate from the shopper/seller APK.
 publish_to: "none"
-version: 1.0.65+66
+version: 1.0.66+67
 
 environment:
   sdk: ^3.12.2
