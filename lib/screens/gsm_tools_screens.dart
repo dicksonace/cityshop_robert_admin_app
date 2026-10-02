@@ -629,7 +629,6 @@ const _gsmGroups = <String, String>{
   'server': 'Server Service',
   'remote': 'Remote Service',
   'file': 'File Service',
-  'credit': 'Credit | Box Activation',
 };
 
 class _BuyerFieldDraft {

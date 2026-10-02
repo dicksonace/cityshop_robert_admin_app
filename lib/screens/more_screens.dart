@@ -62,7 +62,6 @@ class MoreScreen extends StatelessWidget {
           _tile(context, Icons.dns_outlined, 'Server Service', '/gsm-tools/services/server'),
           _tile(context, Icons.settings_remote_outlined, 'Remote Service', '/gsm-tools/services/remote'),
           _tile(context, Icons.insert_drive_file_outlined, 'File Service', '/gsm-tools/services/file'),
-          _tile(context, Icons.credit_card_outlined, 'Credit | Box Activation', '/gsm-tools/services/credit'),
           _tile(context, Icons.list_alt_outlined, 'All GSM orders', '/gsm-tools/orders'),
           const Padding(
             padding: EdgeInsets.only(top: 12, bottom: 4),
