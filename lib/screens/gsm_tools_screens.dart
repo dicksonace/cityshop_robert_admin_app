@@ -665,6 +665,7 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
   List<Map<String, dynamic>> services = [];
   List<Map<String, dynamic>> groups = [];
   final name = TextEditingController();
+  final serviceQuery = TextEditingController();
   final categoryName = TextEditingController();
   final description = TextEditingController();
   final eta = TextEditingController(text: 'INSTANT');
@@ -681,6 +682,15 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
 
   String get title => _gsmGroups[widget.type] ?? 'GSM Service';
 
+  List<Map<String, dynamic>> get _visibleServices {
+    final query = serviceQuery.text.trim().toLowerCase();
+    if (query.isEmpty) return services;
+    return services.where((service) {
+      final text = '${service['name'] ?? ''} ${service['description'] ?? ''} ${service['group_name'] ?? ''}'.toLowerCase();
+      return text.contains(query);
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -690,6 +700,7 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
   @override
   void dispose() {
     name.dispose();
+    serviceQuery.dispose();
     categoryName.dispose();
     description.dispose();
     eta.dispose();
@@ -1165,12 +1176,37 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                   onPressed: saving ? null : _create,
                 ),
                 const SizedBox(height: 24),
+                TextField(
+                  controller: serviceQuery,
+                  onChanged: (_) => setState(() {}),
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Search services',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: serviceQuery.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            onPressed: () {
+                              serviceQuery.clear();
+                              setState(() {});
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 if (services.isEmpty)
                   Text(
                     'No $title yet. Add the first one. You can send more details later.',
                     style: const TextStyle(color: AppColors.textSecondary),
+                  )
+                else if (_visibleServices.isEmpty)
+                  const Text(
+                    'No services match that search.',
+                    style: TextStyle(color: AppColors.textSecondary),
                   ),
-                for (final service in services)
+                for (final service in _visibleServices)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Material(
