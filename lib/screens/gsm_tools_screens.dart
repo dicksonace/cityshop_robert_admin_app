@@ -1216,7 +1216,7 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                         side: const BorderSide(color: Color(0xFFE5E7EB)),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+                        padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1226,53 +1226,49 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    '${service['name']}',
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, height: 1.25, color: Color(0xFF111827)),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${service['name']}',
+                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, height: 1.25, color: Color(0xFF111827)),
+                                        ),
+                                      ),
+                                      _GsmIconAction(
+                                        tooltip: 'Edit',
+                                        color: const Color(0xFFEA580C),
+                                        icon: Icons.edit_outlined,
+                                        onPressed: () => _startEdit(service),
+                                      ),
+                                      _GsmIconAction(
+                                        tooltip: 'Delete',
+                                        color: const Color(0xFFB91C1C),
+                                        icon: Icons.delete_outline,
+                                        onPressed: () => _delete(service),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 6,
                                     runSpacing: 6,
                                     children: [
-                                      _SolidChip(
-                                        label: money.format(asDouble(service['price_ghs'])),
-                                        background: const Color(0xFFECFDF5),
-                                        foreground: const Color(0xFF065F46),
-                                        compact: true,
+                                      _buyerPriceChip(asDouble(service['price_ghs'])),
+                                      _buyerMetaChip(
+                                        _shortGsmType('${service['service_type'] ?? widget.type}'),
+                                        const Color(0xFFFFF7ED),
+                                        const Color(0xFFF97316),
                                       ),
-                                      _SolidChip(
-                                        label: '${service['service_type_label'] ?? widget.type}'.toString().toUpperCase(),
-                                        background: const Color(0xFFFFF7ED),
-                                        foreground: const Color(0xFFF97316),
-                                        compact: true,
-                                      ),
-                                      _SolidChip(
-                                        label: '${service['eta_label'] ?? 'INSTANT'}'.toUpperCase(),
-                                        background: const Color(0xFFEFF6FF),
-                                        foreground: const Color(0xFF1D4ED8),
-                                        compact: true,
+                                      _buyerMetaChip(
+                                        '${service['eta_label'] ?? 'INSTANT'}'.trim().toUpperCase(),
+                                        const Color(0xFFEFF6FF),
+                                        const Color(0xFF1D4ED8),
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
-                            ),
-                            Column(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Edit',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () => _startEdit(service),
-                                  icon: const Icon(Icons.edit_outlined, color: Color(0xFFEA580C)),
-                                ),
-                                IconButton(
-                                  tooltip: 'Delete',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () => _delete(service),
-                                  icon: const Icon(Icons.delete_outline, color: Color(0xFFB91C1C), size: 20),
-                                ),
-                              ],
                             ),
                           ],
                         ),
@@ -1285,30 +1281,77 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
   }
 }
 
+String _shortGsmType(String raw) {
+  final type = raw.trim().toLowerCase();
+  if (type.isEmpty) return 'GSM';
+  return type.toUpperCase();
+}
+
+Widget _buyerPriceChip(double price) {
+  final whole = price.truncateToDouble() == price;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+    decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(4)),
+    child: Text(
+      'GH₵${price.toStringAsFixed(whole ? 0 : 2)}',
+      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF065F46)),
+    ),
+  );
+}
+
+Widget _buyerMetaChip(String label, Color background, Color foreground) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+    decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(4)),
+    child: Text(
+      label,
+      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: foreground),
+    ),
+  );
+}
+
+class _GsmIconAction extends StatelessWidget {
+  const _GsmIconAction({required this.tooltip, required this.color, required this.icon, required this.onPressed});
+
+  final String tooltip;
+  final Color color;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        minimumSize: const Size(28, 28),
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
+      ),
+      icon: Icon(icon, color: color, size: 18),
+    );
+  }
+}
+
 class _SolidChip extends StatelessWidget {
-  const _SolidChip({required this.label, required this.background, required this.foreground, this.compact = false});
+  const _SolidChip({required this.label, required this.background, required this.foreground});
 
   final String label;
   final Color background;
   final Color foreground;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 3 : 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(compact ? 4 : 6),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: compact ? 10 : 11,
-          fontWeight: FontWeight.w800,
-          color: foreground,
-          letterSpacing: compact ? 0.3 : 0.2,
-        ),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: foreground, letterSpacing: 0.2),
       ),
     );
   }
