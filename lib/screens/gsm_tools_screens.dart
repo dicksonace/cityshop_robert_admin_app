@@ -922,6 +922,23 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
     }
   }
 
+  Future<void> _setActive(Map<String, dynamic> service, bool active) async {
+    setState(() => saving = true);
+    try {
+      await context.read<AdminStore>().postJson(
+        '/admin/gsm-tools/services/${service['id']}/active',
+        data: {'active': active},
+      );
+      if (!mounted) return;
+      showSnack(context, active ? 'Service enabled' : 'Service disabled');
+      await _load();
+    } on ApiException catch (e) {
+      if (mounted) showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> _delete(Map<String, dynamic> service) async {
     final ok = await confirmAction(
       context,
@@ -1209,7 +1226,9 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                 for (final service in _visibleServices)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: Material(
+                    child: Opacity(
+                      opacity: service['active'] == false ? 0.7 : 1,
+                      child: Material(
                       color: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -1233,6 +1252,24 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                                         child: Text(
                                           '${service['name']}',
                                           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, height: 1.25, color: Color(0xFF111827)),
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: saving
+                                            ? null
+                                            : () => _setActive(service, service['active'] == false),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: service['active'] == false
+                                              ? const Color(0xFF047857)
+                                              : const Color(0xFFB91C1C),
+                                          minimumSize: const Size(0, 28),
+                                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                        child: Text(
+                                          service['active'] == false ? 'Enable' : 'Disable',
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
                                         ),
                                       ),
                                       _GsmIconAction(
@@ -1265,6 +1302,8 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                                         const Color(0xFFEFF6FF),
                                         const Color(0xFF1D4ED8),
                                       ),
+                                      if (service['active'] == false)
+                                        _buyerMetaChip('DISABLED', const Color(0xFFF3F4F6), const Color(0xFF6B7280)),
                                     ],
                                   ),
                                 ],
@@ -1273,6 +1312,7 @@ class _GsmServiceGroupScreenState extends State<GsmServiceGroupScreen> {
                           ],
                         ),
                       ),
+                    ),
                     ),
                   ),
               ],
