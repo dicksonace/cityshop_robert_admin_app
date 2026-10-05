@@ -32,11 +32,12 @@ class AdminUser {
 }
 
 class PendingMfa {
-  const PendingMfa({required this.token, required this.methods, this.emailHint});
+  const PendingMfa({required this.token, required this.methods, this.emailHint, this.codeChannel = 'sms'});
 
   final String token;
   final List<String> methods;
   final String? emailHint;
+  final String codeChannel;
 }
 
 class AdminStore extends ChangeNotifier {
@@ -110,6 +111,7 @@ class AdminStore extends ChangeNotifier {
         token: '${body['mfa_token']}',
         methods: methods.isEmpty ? const ['email'] : methods,
         emailHint: body['email_hint']?.toString(),
+        codeChannel: body['code_channel']?.toString() ?? 'sms',
       );
     }
     final token = body['token'] as String?;

@@ -82,7 +82,10 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
         title: const Text('Google Authenticator'),
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [Tab(text: 'Email / Gmail'), Tab(text: 'Google Authenticator')],
+          tabs: [
+            Tab(text: _codeTab),
+            const Tab(text: 'Google Authenticator'),
+          ],
         ),
       ),
       body: _loading
@@ -94,21 +97,39 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
     );
   }
 
+  String get _channel => '${_mfa['code_channel'] ?? 'sms'}';
+  bool get _viaSms => _channel != 'email';
+  String get _codeTab => _channel == 'email' ? 'Email / Gmail' : _channel == 'both' ? 'SMS or email' : 'SMS';
+
+  bool get _codeReady {
+    final hasMobile = _mfa['has_mobile'] == true;
+    final hasEmail = _mfa['has_email'] == true;
+    if (_channel == 'both') return hasMobile || hasEmail;
+    return _viaSms ? hasMobile : hasEmail;
+  }
+
+  String get _where {
+    if (_channel == 'both') return '${_mfa['mobile'] ?? 'your phone'} and ${_mfa['email'] ?? 'your email'}';
+    return _viaSms ? '${_mfa['mobile'] ?? 'your phone'}' : '${_mfa['email'] ?? 'your email'}';
+  }
+
   Widget _emailTab() {
     final enabled = _mfa['email_enabled'] == true;
-    final hasEmail = _mfa['has_email'] == true;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
         Text(
-          hasEmail
-              ? 'Codes are emailed to ${_mfa['email']}. Gmail and other inboxes both work.'
-              : 'Add an email on your account first.',
+          _codeReady
+              ? 'Codes go to $_where.'
+              : (_viaSms ? 'Add a phone number on your account first.' : 'Add an email on your account first.'),
         ),
         if (enabled) ...[
           const SizedBox(height: 8),
-          const Text('Email codes are on.', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+          Text(
+            _channel == 'email' ? 'Email codes are on.' : 'SMS codes are on.',
+            style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+          ),
         ],
         const SizedBox(height: 12),
         TextField(
@@ -117,25 +138,28 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
           decoration: const InputDecoration(labelText: 'Current password'),
         ),
         const SizedBox(height: 12),
-        if (!enabled && hasEmail) ...[
+        if (!enabled && _codeReady) ...[
           PrimaryButton(
-            label: 'Email me a code',
+            label: _channel == 'both' ? 'Send me a code' : _viaSms ? 'Text me a code' : 'Email me a code',
             onPressed: () => _run(() => context.read<AdminStore>().sendMfaEmail(_password.text)),
           ),
           const SizedBox(height: 12),
-          const Text('Code from the email', style: TextStyle(fontWeight: FontWeight.w700)),
+          Text(
+            _channel == 'email' ? 'Code from the email' : 'Code from the text',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           OtpCodeBoxes(controller: _code),
           const SizedBox(height: 12),
           PrimaryButton(
-            label: 'Turn on email codes',
+            label: _channel == 'email' ? 'Turn on email codes' : 'Turn on SMS codes',
             onPressed: () => _run(() => context.read<AdminStore>().confirmMfaEmail(_code.text.trim())),
           ),
         ],
         if (enabled)
           OutlinedButton(
             onPressed: () => _run(() => context.read<AdminStore>().disableMfaEmail(_password.text)),
-            child: const Text('Turn off email codes'),
+            child: Text(_channel == 'email' ? 'Turn off email codes' : 'Turn off SMS codes'),
           ),
       ],
     );
@@ -274,6 +298,7 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
       final result = await context.read<AdminStore>().postJson('/admin/settings/sms', data: {
         'driver': _driver,
         'failover': _failover,
+        'code_channel': str(settings['code_channel'], 'sms'),
         'alert_mobile_1': _alert1.text.trim(),
         'alert_mobile_2': _alert2.text.trim(),
         'alert_mobile_3': _alert3.text.trim(),
@@ -362,6 +387,23 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
                         );
                       }),
                     ],
+                    const SizedBox(height: 8),
+                    const Text('Sign-in codes go by', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Choose where the 6-digit sign-in code is sent. SMS is the default because email is unreliable.',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    ),
+                    DropdownButtonFormField<String>(
+                      value: str(settings['code_channel'], 'sms'),
+                      items: const [
+                        DropdownMenuItem(value: 'sms', child: Text('SMS')),
+                        DropdownMenuItem(value: 'email', child: Text('Email')),
+                        DropdownMenuItem(value: 'both', child: Text('SMS and email')),
+                      ],
+                      onChanged: (value) => setState(() => settings['code_channel'] = value),
+                      decoration: const InputDecoration(labelText: 'Route'),
+                    ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Failover to the other provider'),

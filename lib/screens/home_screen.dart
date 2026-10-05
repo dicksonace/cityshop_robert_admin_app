@@ -28,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> pendingWithdrawals = [];
   List<Map<String, dynamic>> pendingRmbTransfers = [];
   List<Map<String, dynamic>> pendingSellRmbTransfers = [];
+  List<Map<String, dynamic>> alerts = [];
   Timer? _pollTimer;
 
   @override
@@ -78,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
         pendingWithdrawals = asMaps(queues['withdrawals']);
         pendingRmbTransfers = asMaps(rmb['data']).take(5).toList();
         pendingSellRmbTransfers = asMaps(sellRmb['data']).take(5).toList();
+        alerts = asMaps(data['alerts']);
         loading = false;
         refreshing = false;
         if (!silent) error = null;
@@ -207,6 +209,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
+                      if (alerts.isNotEmpty) ...[
+                        ...alerts.map((alert) => Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFFDBA74)),
+                              ),
+                              child: Text(
+                                '${alert['body'] ?? alert['title'] ?? 'Needs a decision'}',
+                                style: const TextStyle(fontWeight: FontWeight.w700, height: 1.35),
+                              ),
+                            )),
+                        const SizedBox(height: 6),
+                      ],
                       Row(
                         children: [
                           Expanded(

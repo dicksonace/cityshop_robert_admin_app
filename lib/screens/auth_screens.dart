@@ -560,7 +560,8 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 16),
               SegmentedButton<String>(
                 segments: [
-                  if (pending.methods.contains('email')) const ButtonSegment(value: 'email', label: Text('Email')),
+                  if (pending.methods.contains('email'))
+                    ButtonSegment(value: 'email', label: Text(pending.codeChannel == 'email' ? 'Email' : 'SMS')),
                   if (pending.methods.contains('totp')) const ButtonSegment(value: 'totp', label: Text('Authenticator')),
                 ],
                 selected: {_method},
@@ -572,7 +573,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
             const SizedBox(height: 16),
             Text(
-              _method == 'email' ? 'Email code' : 'Authenticator code',
+              _method == 'email' ? (pending.codeChannel == 'email' ? 'Email code' : 'SMS code') : 'Authenticator code',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
@@ -580,7 +581,7 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 8),
             Text(
               _method == 'email'
-                  ? 'Sent to ${pending.emailHint ?? 'your email'}. Gmail works too.'
+                  ? 'Sent to ${pending.emailHint ?? (pending.codeChannel == 'email' ? 'your email' : 'your phone')}.'
                   : 'Code from the app you scanned.',
               style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
@@ -598,13 +599,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         try {
                           await context.read<AdminStore>().resendMfaEmail(pending.token);
                           if (!mounted) return;
-                          showSnack(context, 'A new code was emailed.');
+                          showSnack(context, pending.codeChannel == 'email' ? 'A new code was emailed.' : 'A new code was sent by SMS.');
                         } on ApiException catch (e) {
                           if (!mounted) return;
                           showSnack(context, e.message, error: true);
                         }
                       },
-                child: const Text('Send a new email code'),
+                child: Text(pending.codeChannel == 'email' ? 'Send a new email code' : 'Send a new SMS code'),
               ),
           ],
         ),
