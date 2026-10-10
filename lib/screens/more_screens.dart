@@ -1123,7 +1123,10 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => _FundSheet(user: user),
+      builder: (ctx) => Align(
+        alignment: Alignment.bottomCenter,
+        child: _FundSheet(user: user),
+      ),
     );
     if (choice == null || !mounted) return;
     try {
@@ -1291,7 +1294,7 @@ class _FundSheetState extends State<_FundSheet> {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+      padding: EdgeInsets.fromLTRB(20, 10, 20, 12 + bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1303,20 +1306,19 @@ class _FundSheetState extends State<_FundSheet> {
               decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(4)),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(str(user['name']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
           const SizedBox(height: 2),
           Text(
             [roleLabel, str(user['mobile'])].where((part) => part.isNotEmpty).join(' · '),
             style: const TextStyle(color: AppColors.textSecondary),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
-            'GHS ${money.format(asDouble(user['available_balance']))}'
-            ' · RMB ¥${asDouble(user['rmb_balance']).toStringAsFixed(2)}',
+            'GHS ${money.format(asDouble(user['available_balance']))}',
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(child: _choice('Add', adding, () => setState(() => action = 'credit'))),
@@ -1324,28 +1326,24 @@ class _FundSheetState extends State<_FundSheet> {
               Expanded(child: _choice('Remove', !adding, () => setState(() => action = 'debit'), danger: true)),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: _choice('GHS', currency == 'GHS', () => setState(() => currency = 'GHS'))),
-              const SizedBox(width: 8),
-              Expanded(child: _choice('RMB', currency == 'RMB', () => setState(() => currency = 'RMB'))),
-            ],
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           TextField(
             controller: amount,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: currency == 'RMB' ? 'Amount (¥)' : 'Amount (GH₵)',
+            decoration: const InputDecoration(
+              labelText: 'Amount (GH₵)',
+              isDense: true,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           TextField(
             controller: note,
-            decoration: const InputDecoration(labelText: 'Note (optional)'),
+            decoration: const InputDecoration(
+              labelText: 'Note (optional)',
+              isDense: true,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           FilledButton(
             onPressed: () {
               final value = amount.text.trim();
@@ -1361,7 +1359,7 @@ class _FundSheetState extends State<_FundSheet> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             child: Text(
-              adding ? 'Add $currency' : 'Remove $currency',
+              adding ? 'Add GHS' : 'Remove GHS',
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
