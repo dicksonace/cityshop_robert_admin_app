@@ -1115,43 +1115,26 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
     }
   }
 
-  Future<void> _fund(Map<String, dynamic> user, String action) async {
-    final currency = await showModalBottomSheet<String>(
+  Future<void> _fund(Map<String, dynamic> user) async {
+    final choice = await showModalBottomSheet<_FundChoice>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('GHS'),
-              onTap: () => Navigator.pop(ctx, 'GHS'),
-            ),
-            ListTile(
-              title: const Text('RMB'),
-              onTap: () => Navigator.pop(ctx, 'RMB'),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (ctx) => _FundSheet(user: user),
     );
-    if (currency == null || !mounted) return;
-    final amount = await promptText(
-      context,
-      title: action == 'credit'
-          ? 'Add $currency'
-          : 'Remove $currency',
-      label: 'Amount',
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-    );
-    if (amount == null || !mounted) return;
+    if (choice == null || !mounted) return;
     try {
       final result = await context.read<AdminStore>().postJson(
             '/admin/wallet-funding',
             data: {
               'user_id': user['id'],
-              'action': action,
-              'currency': currency,
-              'amount': amount,
+              'action': choice.action,
+              'currency': choice.currency,
+              'amount': choice.amount,
+              if (choice.note.isNotEmpty) 'note': choice.note,
             },
           );
       if (!mounted) return;
@@ -1166,60 +1149,239 @@ class _WalletFundingScreenState extends State<WalletFundingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.white,
       appBar: AppBar(title: const Text('Wallet funding')),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: TextField(
               controller: _search,
+              textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Search name, email, or mobile',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(onPressed: _load, icon: const Icon(Icons.arrow_forward)),
+                hintText: 'Name, email, or mobile',
+                prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                suffixIcon: IconButton(
+                  onPressed: loading ? null : _load,
+                  icon: const Icon(Icons.arrow_forward, color: AppColors.textPrimary),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF3F4F6),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.primary),
+                ),
               ),
               onSubmitted: (_) => _load(),
             ),
           ),
+          if (loading)
+            const LinearProgressIndicator(minHeight: 2, color: AppColors.primary)
+          else
+            const SizedBox(height: 2),
           Expanded(
-            child: loading
-                ? const FullPageLoader()
-                : error != null
-                    ? ErrorRetry(message: error!, onRetry: _load)
-                    : users.isEmpty
-                        ? const EmptyState('Search a buyer or seller to credit or debit GHS / RMB.')
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                            itemCount: users.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 8),
-                            itemBuilder: (context, index) {
-                              final user = users[index];
-                              return Material(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                child: ListTile(
-                                  title: Text(str(user['name'])),
-                                  subtitle: Text(
-                                    '${str(user['role'])} · ${str(user['mobile'])}\n'
-                                    'GHS ${money.format(asDouble(user['available_balance']))}'
-                                    ' · RMB ¥${asDouble(user['rmb_balance']).toStringAsFixed(2)}',
+            child: error != null
+                ? ErrorRetry(message: error!, onRetry: _load)
+                : users.isEmpty
+                    ? const EmptyState('Search a buyer or seller, then tap them to add or remove GHS or RMB.')
+                    : ListView.separated(
+                        padding: const EdgeInsets.only(bottom: 32),
+                        itemCount: users.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1, indent: 16, endIndent: 16),
+                        itemBuilder: (context, index) {
+                          final user = users[index];
+                          final role = str(user['role']);
+                          final roleLabel = role.isEmpty
+                              ? ''
+                              : '${role[0].toUpperCase()}${role.substring(1)}';
+                          final mobile = str(user['mobile']);
+                          return InkWell(
+                            onTap: () => _fund(user),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          str(user['name']),
+                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          [roleLabel, mobile].where((part) => part.isNotEmpty).join(' · '),
+                                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'GHS ${money.format(asDouble(user['available_balance']))}'
+                                          ' · RMB ¥${asDouble(user['rmb_balance']).toStringAsFixed(2)}',
+                                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  isThreeLine: true,
-                                  trailing: PopupMenuButton<String>(
-                                    onSelected: (value) => _fund(user, value),
-                                    itemBuilder: (_) => const [
-                                      PopupMenuItem(value: 'credit', child: Text('Add money')),
-                                      PopupMenuItem(value: 'debit', child: Text('Remove money')),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                                  const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _FundChoice {
+  const _FundChoice({
+    required this.action,
+    required this.currency,
+    required this.amount,
+    required this.note,
+  });
+
+  final String action;
+  final String currency;
+  final String amount;
+  final String note;
+}
+
+class _FundSheet extends StatefulWidget {
+  const _FundSheet({required this.user});
+
+  final Map<String, dynamic> user;
+
+  @override
+  State<_FundSheet> createState() => _FundSheetState();
+}
+
+class _FundSheetState extends State<_FundSheet> {
+  String action = 'credit';
+  String currency = 'GHS';
+  final amount = TextEditingController();
+  final note = TextEditingController();
+
+  @override
+  void dispose() {
+    amount.dispose();
+    note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = widget.user;
+    final role = str(user['role']);
+    final roleLabel = role.isEmpty ? '' : '${role[0].toUpperCase()}${role.substring(1)}';
+    final adding = action == 'credit';
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 12, 20, 16 + bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(color: const Color(0xFFE5E7EB), borderRadius: BorderRadius.circular(4)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(str(user['name']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          const SizedBox(height: 2),
+          Text(
+            [roleLabel, str(user['mobile'])].where((part) => part.isNotEmpty).join(' · '),
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'GHS ${money.format(asDouble(user['available_balance']))}'
+            ' · RMB ¥${asDouble(user['rmb_balance']).toStringAsFixed(2)}',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: _choice('Add', adding, () => setState(() => action = 'credit'))),
+              const SizedBox(width: 8),
+              Expanded(child: _choice('Remove', !adding, () => setState(() => action = 'debit'), danger: true)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _choice('GHS', currency == 'GHS', () => setState(() => currency = 'GHS'))),
+              const SizedBox(width: 8),
+              Expanded(child: _choice('RMB', currency == 'RMB', () => setState(() => currency = 'RMB'))),
+            ],
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: currency == 'RMB' ? 'Amount (¥)' : 'Amount (GH₵)',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: note,
+            decoration: const InputDecoration(labelText: 'Note (optional)'),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () {
+              final value = amount.text.trim();
+              if (double.tryParse(value) == null) return;
+              Navigator.pop(
+                context,
+                _FundChoice(action: action, currency: currency, amount: value, note: note.text.trim()),
+              );
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: adding ? AppColors.primary : AppColors.danger,
+              minimumSize: const Size.fromHeight(48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(
+              adding ? 'Add $currency' : 'Remove $currency',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _choice(String label, bool selected, VoidCallback onTap, {bool danger = false}) {
+    final color = selected ? (danger ? AppColors.danger : AppColors.primary) : const Color(0xFFE5E7EB);
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: selected ? Colors.white : AppColors.textPrimary,
+        backgroundColor: selected ? color : Colors.white,
+        side: BorderSide(color: color),
+        minimumSize: const Size.fromHeight(42),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
 }
