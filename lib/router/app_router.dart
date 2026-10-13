@@ -5,6 +5,7 @@ import '../screens/china_screens.dart';
 import '../screens/extra_screens.dart';
 import '../screens/gsm_tools_screens.dart';
 import '../screens/home_screen.dart';
+import '../screens/korapay_screens.dart';
 import '../screens/kyc_screens.dart';
 import '../screens/money_screens.dart';
 import '../screens/more_screens.dart';
@@ -95,6 +96,7 @@ GoRouter createRouter(AdminStore store) {
       GoRoute(path: '/announcements', builder: (_, _) => const AnnouncementsScreen(audience: 'sellers')),
       GoRoute(path: '/buyer-announcements', builder: (_, _) => const AnnouncementsScreen(audience: 'buyers')),
       GoRoute(path: '/transactions', builder: (_, _) => const TransactionsScreen()),
+      GoRoute(path: '/korapay-payments', builder: (_, _) => const KorapayPaymentsScreen()),
       GoRoute(path: '/china-transfers', builder: (_, _) => const ChinaTransfersScreen()),
       GoRoute(
         path: '/china-transfers/:id',

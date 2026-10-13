@@ -52,6 +52,7 @@ class MoreScreen extends StatelessWidget {
           _tile(context, Icons.outbond_outlined, 'Withdrawals', '/money'),
           _tile(context, Icons.payments_outlined, 'Wallet funding', '/wallet-funding'),
           _tile(context, Icons.receipt_long_outlined, 'Transactions', '/transactions'),
+          _tile(context, Icons.phone_android, 'Korapay payments', '/korapay-payments'),
           _tile(context, Icons.currency_exchange, 'Transfer RMB', '/china-transfers'),
           _tile(context, Icons.currency_yen, 'Sell RMB queues', '/sell-rmb'),
           const Padding(
