@@ -484,12 +484,16 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
   String? error;
   Map<String, dynamic> settings = {};
   Map<String, dynamic> flutterwaveKeys = {};
+  Map<String, dynamic> korapayKeys = {};
   bool checkoutEnabled = true;
   bool rechargeEnabled = true;
   bool withdrawalEnabled = true;
   bool flutterwaveLocked = false;
   bool savingKeys = false;
   bool verifyingKeys = false;
+  bool savingKoraKeys = false;
+  final _koraPublic = TextEditingController();
+  final _koraSecret = TextEditingController();
   final _percent = TextEditingController();
   final _flat = TextEditingController();
   final _flwPublic = TextEditingController();
@@ -509,6 +513,8 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
     _flwPublic.dispose();
     _flwSecret.dispose();
     _flwHash.dispose();
+    _koraPublic.dispose();
+    _koraSecret.dispose();
     super.dispose();
   }
 
@@ -518,6 +524,7 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
       if (!mounted) return;
       settings = asMap(data['settings']);
       flutterwaveKeys = asMap(data['flutterwave_keys']);
+      korapayKeys = asMap(data['korapay_keys']);
       final payments = asMap(data['paystack_payments']);
       final locked = data['payments_locked'] == true;
       if (payments.isNotEmpty) {
@@ -559,7 +566,7 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Paystack / Flutterwave')),
+      appBar: AppBar(title: const Text('Paystack / Flutterwave / Korapay')),
       body: loading
           ? const FullPageLoader()
           : error != null
@@ -680,6 +687,72 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
                               }
                             },
                       child: Text(verifyingKeys ? 'Testing…' : 'Test Flutterwave keys'),
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    SwitchListTile(
+                      title: const Text('Disable Korapay payments'),
+                      value: korapayKeys['locked'] == true,
+                      onChanged: (value) async {
+                        try {
+                          await context.read<AdminStore>().postJson('/admin/settings/korapay/lock', data: {'locked': value});
+                          await _load();
+                        } on ApiException catch (e) {
+                          if (!context.mounted) return;
+                          showSnack(context, e.message, error: true);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Korapay API keys', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    Text(
+                      korapayKeys['configured'] == true
+                          ? 'Current: ${str(korapayKeys['public_key_masked'], 'set')}${korapayKeys['is_test'] == true ? ' (test keys)' : ''}'
+                          : 'No keys set. Buyers will not see Korapay.',
+                      style: const TextStyle(color: AppColors.textSecondary, height: 1.35),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Webhook URL: ${str(korapayKeys['webhook_url'], 'https://cityunlock.net/webhooks/korapay')}',
+                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _koraPublic,
+                      decoration: const InputDecoration(labelText: 'Public key', hintText: 'pk_live_…'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _koraSecret,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'Secret key', hintText: 'sk_live_…'),
+                    ),
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                      label: savingKoraKeys ? 'Saving…' : 'Save and test Korapay keys',
+                      onPressed: savingKoraKeys
+                          ? null
+                          : () async {
+                              setState(() => savingKoraKeys = true);
+                              try {
+                                final result = await context.read<AdminStore>().postJson('/admin/settings/korapay/keys', data: {
+                                  'public_key': _koraPublic.text.trim(),
+                                  'secret_key': _koraSecret.text.trim(),
+                                });
+                                if (!context.mounted) return;
+                                _koraPublic.clear();
+                                _koraSecret.clear();
+                                showSnack(context, str(result['message'], 'Saved.'));
+                                await _load();
+                              } on ApiException catch (e) {
+                                if (!context.mounted) return;
+                                showSnack(context, e.message, error: true);
+                                await _load();
+                              } finally {
+                                if (mounted) setState(() => savingKoraKeys = false);
+                              }
+                            },
                     ),
                     const SizedBox(height: 16),
                     const Divider(),
