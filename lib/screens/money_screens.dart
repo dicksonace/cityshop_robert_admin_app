@@ -596,6 +596,36 @@ class _WithdrawalCard extends StatelessWidget {
                   ],
                 ],
               ),
+              if (str(item['junipay_trans_id']).isNotEmpty && (status == 'pending' || status == 'processing'))
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Sent to Junipay · waiting for confirmation',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFB91C1C)),
+                  ),
+                )
+              else if (item['junipay_payout_available'] == true && (status == 'pending' || status == 'processing'))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+                      onPressed: () async {
+                        final ok = await confirmAction(
+                          context,
+                          title: 'Send via Junipay',
+                          body: 'Send this withdrawal to ${number.isEmpty ? 'the account' : number} through Junipay now?',
+                          action: 'Send',
+                        );
+                        if (!ok) return;
+                        await onAct('/admin/withdrawals/$id/junipay');
+                      },
+                      icon: const Icon(Icons.send_rounded, size: 18),
+                      label: const Text('Send via Junipay'),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

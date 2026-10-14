@@ -566,7 +566,7 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Paystack / Flutterwave / Korapay')),
+      appBar: AppBar(title: const Text('Paystack / Flutterwave / Korapay / Junipay')),
       body: loading
           ? const FullPageLoader()
           : error != null
@@ -756,6 +756,9 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
                     ),
                     const SizedBox(height: 16),
                     const Divider(),
+                    const _JunipaySettingsSection(),
+                    const SizedBox(height: 16),
+                    const Divider(),
                     SwitchListTile(
                       title: const Text('Fee enabled'),
                       value: settings['enabled'] == true,
@@ -785,6 +788,158 @@ class _PaystackSettingsScreenState extends State<PaystackSettingsScreen> {
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _JunipaySettingsSection extends StatefulWidget {
+  const _JunipaySettingsSection();
+
+  @override
+  State<_JunipaySettingsSection> createState() => _JunipaySettingsSectionState();
+}
+
+class _JunipaySettingsSectionState extends State<_JunipaySettingsSection> {
+  Map<String, dynamic> status = {};
+  bool loading = true;
+  bool busy = false;
+  final _clientId = TextEditingController();
+  final _privateKey = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _clientId.dispose();
+    _privateKey.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = await context.read<AdminStore>().getJson('/admin/settings/junipay');
+      if (!mounted) return;
+      setState(() {
+        status = asMap(data['data']);
+        loading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => loading = false);
+      showSnack(context, e.message, error: true);
+    }
+  }
+
+  Future<void> _post(String path, [Map<String, dynamic>? data]) async {
+    setState(() => busy = true);
+    try {
+      final result = await context.read<AdminStore>().postJson(path, data: data ?? {});
+      if (!mounted) return;
+      if (result['data'] is Map) status = asMap(result['data']);
+      showSnack(context, str(result['message'], 'Saved.'), error: result['ok'] == false);
+      if (path.endsWith('/keys') && result['ok'] != false) {
+        _clientId.clear();
+        _privateKey.clear();
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showSnack(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Widget _toggle(String key, String title, String subtitle) {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(title),
+      subtitle: Text(subtitle),
+      value: status[key] == true,
+      onChanged: busy ? null : (value) => _post('/admin/settings/junipay', {key: value}),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final configured = status['configured'] == true;
+    final clientId = str(status['client_id'], '');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Junipay (MoMo collections and payouts)',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        Text(
+          configured
+              ? 'Keys set${clientId.isNotEmpty ? ' · Client ID $clientId' : ''} (${str(status['source'], 'admin')})'
+              : 'No keys set. Buyers will not see Junipay and payouts are off.',
+          style: const TextStyle(color: AppColors.textSecondary, height: 1.35),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Callback URL: ${str(status['callback_url'], 'https://cityunlock.net/webhooks/junipay')}',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+        ),
+        _toggle('collections_enabled', 'Junipay payments', 'Show Junipay on checkout and wallet recharge'),
+        _toggle('payouts_enabled', 'Junipay withdrawals', 'Allow "Send via Junipay" on withdrawals'),
+        _toggle('auto_payout', 'Auto payout', 'Send new withdrawals to Junipay automatically'),
+        _toggle('sandbox', 'Sandbox mode', 'Use Junipay test environment'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _clientId,
+          decoration: const InputDecoration(labelText: 'Client ID'),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _privateKey,
+          minLines: 3,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            labelText: 'Private key (PEM)',
+            hintText: '-----BEGIN PRIVATE KEY-----',
+          ),
+        ),
+        const SizedBox(height: 12),
+        PrimaryButton(
+          label: busy ? 'Working…' : 'Save and test Junipay keys',
+          onPressed: busy
+              ? null
+              : () => _post('/admin/settings/junipay/keys', {
+                    'client_id': _clientId.text.trim(),
+                    'private_key': _privateKey.text.trim(),
+                  }),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: busy || !configured ? null : () => _post('/admin/settings/junipay/keys/verify'),
+                child: const Text('Test keys'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: busy || status['admin_private_key_set'] != true
+                    ? null
+                    : () => _post('/admin/settings/junipay/keys/clear'),
+                child: const Text('Clear admin keys'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
