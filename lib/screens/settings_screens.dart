@@ -858,7 +858,7 @@ class _JunipaySettingsSectionState extends State<_JunipaySettingsSection> {
       contentPadding: EdgeInsets.zero,
       title: Text(title),
       subtitle: Text(subtitle),
-      value: status[key] == true,
+      value: status[key] == true || status[key] == 1,
       onChanged: busy ? null : (value) => _post('/admin/settings/junipay', {key: value}),
     );
   }

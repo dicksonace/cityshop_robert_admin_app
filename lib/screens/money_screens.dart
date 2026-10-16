@@ -495,7 +495,10 @@ class _WithdrawalCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('MoMo payout', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857))),
+                    Text(
+                      str(item['pay_to_label'], 'Mobile money'),
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+                    ),
                     if (network.isNotEmpty)
                       Text(network, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                     const SizedBox(height: 6),
@@ -604,7 +607,7 @@ class _WithdrawalCard extends StatelessWidget {
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFB91C1C)),
                   ),
                 )
-              else if (item['junipay_payout_available'] == true && (status == 'pending' || status == 'processing'))
+              else if (status == 'pending' || status == 'processing')
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: SizedBox(
