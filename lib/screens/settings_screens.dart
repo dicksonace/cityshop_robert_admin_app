@@ -893,6 +893,8 @@ class _JunipaySettingsSectionState extends State<_JunipaySettingsSection> {
         _toggle('collections_enabled', 'Junipay payments', 'Show Junipay on checkout and wallet recharge'),
         _toggle('payouts_enabled', 'Junipay withdrawals', 'Allow "Send via Junipay" on withdrawals'),
         _toggle('auto_payout', 'Auto payout', 'Send new withdrawals to Junipay automatically'),
+        _toggle('auto_payout_bank', 'Auto payout for bank',
+            'Turn off to pay bank withdrawals manually. MoMo stays automatic.'),
         _toggle('sandbox', 'Sandbox mode', 'Use Junipay test environment'),
         const SizedBox(height: 8),
         TextField(
