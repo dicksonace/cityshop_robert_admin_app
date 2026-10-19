@@ -1092,7 +1092,10 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                       TextField(
                         controller: _autoPercent,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Auto Paystack fee %'),
+                        decoration: const InputDecoration(
+                          labelText: 'MoMo withdrawal fee (%)',
+                          helperText: 'Charged on MoMo even when Paystack auto-send is off. Bank stays on the flat bands.',
+                        ),
                       ),
                     const SizedBox(height: 16),
                     SwitchListTile(
