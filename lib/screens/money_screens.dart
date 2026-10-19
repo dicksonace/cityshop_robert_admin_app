@@ -599,7 +599,9 @@ class _WithdrawalCard extends StatelessWidget {
                   ],
                 ],
               ),
-              if (str(item['junipay_trans_id']).isNotEmpty && (status == 'pending' || status == 'processing'))
+              if (str(item['junipay_status']) != 'failed' &&
+                  str(item['junipay_trans_id']).isNotEmpty &&
+                  (status == 'pending' || status == 'processing'))
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(
