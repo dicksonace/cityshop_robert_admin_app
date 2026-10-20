@@ -1135,7 +1135,7 @@ class _WithdrawalSettingsScreenState extends State<WithdrawalSettingsScreen> {
                       initialValue: appliesTo,
                       decoration: const InputDecoration(
                         labelText: 'Apply bank fees to',
-                        helperText: '“Charge bank fee bands” also turns charging on when you save.',
+                        helperText: 'Disable all flat fees turns off the GH₵ bands only. The MoMo percent above still charges.',
                       ),
                       items: const [
                         DropdownMenuItem(value: 'bank', child: Text('Charge bank fee bands')),
