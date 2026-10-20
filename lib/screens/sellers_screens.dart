@@ -163,6 +163,7 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
   final _storeName = TextEditingController();
   final _businessName = TextEditingController();
   final _businessReg = TextEditingController();
+  final _restrictionNote = TextEditingController();
   String _region = '';
   bool _businessRegistered = false;
   bool _acceptMarketplace = true;
@@ -185,6 +186,7 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
     _storeName.dispose();
     _businessName.dispose();
     _businessReg.dispose();
+    _restrictionNote.dispose();
     super.dispose();
   }
 
@@ -203,6 +205,7 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
     _businessRegistered = data['is_business_registered'] == true;
     _acceptMarketplace = data['accept_marketplace_payments'] != false;
     _acceptDirect = data['accept_direct_payments'] == true;
+    _restrictionNote.text = str(user['withdrawal_restriction_note']);
   }
 
   Future<void> _load() async {
@@ -493,6 +496,47 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                                         data: {'enabled': value},
                                       ),
                                 ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Restricted 🚫'),
+                        subtitle: const Text('Blocks withdrawal. The note is the message they see.'),
+                        value: asMap(seller['user'])['withdrawal_restricted'] == true,
+                        onChanged: busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  final user = asMap(seller['user']);
+                                  user['withdrawal_restricted'] = value;
+                                  seller['user'] = user;
+                                });
+                              },
+                      ),
+                      TextField(
+                        controller: _restrictionNote,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: 'Note message',
+                          hintText: 'Write the message they will see on withdraw',
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => _run(
+                                    () => context.read<AdminStore>().postJson(
+                                          '/admin/sellers/${widget.id}/withdrawal-restriction',
+                                          data: {
+                                            'restricted': asMap(seller['user'])['withdrawal_restricted'] == true,
+                                            'note': _restrictionNote.text.trim(),
+                                          },
+                                        ),
+                                  ),
+                          child: const Text('Save restriction'),
+                        ),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton(

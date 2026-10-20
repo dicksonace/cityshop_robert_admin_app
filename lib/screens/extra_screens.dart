@@ -284,6 +284,7 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
   bool busy = false;
   String? error;
   Map<String, dynamic> buyer = {};
+  final restrictionNote = TextEditingController();
 
   @override
   void initState() {
@@ -291,12 +292,20 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    restrictionNote.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     try {
       final data = await context.read<AdminStore>().getJson('/admin/buyers/${widget.id}');
       if (!mounted) return;
+      final next = asMap(data['data']);
+      restrictionNote.text = str(next['withdrawal_restriction_note']);
       setState(() {
-        buyer = asMap(data['data']);
+        buyer = next;
         loading = false;
       });
     } on ApiException catch (e) {
@@ -337,7 +346,9 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
       if (!mounted) return;
       showSnack(context, str(result['message'], 'Done.'));
       if (result.containsKey('data')) {
-        setState(() => buyer = asMap(result['data']));
+        final next = asMap(result['data']);
+        restrictionNote.text = str(next['withdrawal_restriction_note']);
+        setState(() => buyer = next);
       } else {
         await _load();
       }
@@ -512,6 +523,43 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                                           data: {'enabled': value},
                                         ),
                                   ),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Restricted 🚫'),
+                          subtitle: const Text('Blocks withdrawal. The note is the message they see.'),
+                          value: buyer['withdrawal_restricted'] == true,
+                          onChanged: busy
+                              ? null
+                              : (value) {
+                                  setState(() => buyer['withdrawal_restricted'] = value);
+                                },
+                        ),
+                        TextField(
+                          controller: restrictionNote,
+                          minLines: 2,
+                          maxLines: 4,
+                          decoration: const InputDecoration(
+                            labelText: 'Note message',
+                            hintText: 'Write the message they will see on withdraw',
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            onPressed: busy
+                                ? null
+                                : () => _run(
+                                      () => context.read<AdminStore>().postJson(
+                                            '/admin/buyers/${widget.id}/withdrawal-restriction',
+                                            data: {
+                                              'restricted': buyer['withdrawal_restricted'] == true,
+                                              'note': restrictionNote.text.trim(),
+                                            },
+                                          ),
+                                    ),
+                            child: const Text('Save restriction'),
+                          ),
                         ),
                       ],
                     ),
