@@ -485,6 +485,20 @@ class _SellerDetailScreenState extends State<SellerDetailScreen> {
                       const Text('Account', style: TextStyle(fontWeight: FontWeight.w800)),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
+                        title: const Text('GSM Tools'),
+                        subtitle: const Text('Off unless this seller is a GSM engineer.'),
+                        value: asMap(seller['user'])['gsm_tools_enabled'] == true,
+                        onChanged: busy
+                            ? null
+                            : (value) => _run(
+                                  () => context.read<AdminStore>().postJson(
+                                        '/admin/sellers/${widget.id}/gsm-tools',
+                                        data: {'enabled': value},
+                                      ),
+                                ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
                         title: const Text('China / RMB'),
                         subtitle: const Text('Off unless this seller should Buy RMB and Sell RMB.'),
                         value: asMap(seller['user'])['china_rmb_enabled'] == true,

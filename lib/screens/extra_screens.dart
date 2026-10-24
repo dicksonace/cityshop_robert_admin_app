@@ -512,6 +512,20 @@ class _BuyerDetailScreenState extends State<BuyerDetailScreen> {
                         _info('Payment PIN', buyer['has_payment_pin'] == true ? 'Set' : 'Not set'),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
+                          title: const Text('GSM Tools'),
+                          subtitle: const Text('Off unless this person is a GSM engineer.'),
+                          value: buyer['gsm_tools_enabled'] == true,
+                          onChanged: busy
+                              ? null
+                              : (value) => _run(
+                                    () => context.read<AdminStore>().postJson(
+                                          '/admin/buyers/${widget.id}/gsm-tools',
+                                          data: {'enabled': value},
+                                        ),
+                                  ),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
                           title: const Text('China / RMB'),
                           subtitle: const Text('Off unless this buyer should Buy RMB and Sell RMB.'),
                           value: buyer['china_rmb_enabled'] == true,
