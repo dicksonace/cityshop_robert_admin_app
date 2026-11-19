@@ -29,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> pendingRmbTransfers = [];
   List<Map<String, dynamic>> pendingSellRmbTransfers = [];
   List<Map<String, dynamic>> alerts = [];
+  bool alertsExpanded = false;
   Timer? _pollTimer;
 
   @override
@@ -210,20 +211,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 14),
                       if (alerts.isNotEmpty) ...[
-                        ...alerts.map((alert) => Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFF7ED),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFFDBA74)),
-                              ),
-                              child: Text(
-                                '${alert['body'] ?? alert['title'] ?? 'Needs a decision'}',
-                                style: const TextStyle(fontWeight: FontWeight.w700, height: 1.35),
-                              ),
-                            )),
+                        _AlertsStack(
+                          alerts: alerts,
+                          expanded: alertsExpanded,
+                          onToggle: () => setState(() => alertsExpanded = !alertsExpanded),
+                          onOpen: (alert) {
+                            final href = '${alert['href'] ?? ''}'.trim();
+                            if (href.isNotEmpty) _go(href);
+                          },
+                        ),
                         const SizedBox(height: 6),
                       ],
                       Row(
@@ -858,6 +854,92 @@ class _QueueCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AlertsStack extends StatelessWidget {
+  const _AlertsStack({
+    required this.alerts,
+    required this.expanded,
+    required this.onToggle,
+    required this.onOpen,
+  });
+
+  final List<Map<String, dynamic>> alerts;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final void Function(Map<String, dynamic> alert) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = expanded ? alerts : alerts.take(1).toList();
+    final hidden = alerts.length - visible.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Needs a decision',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+              ),
+            ),
+            if (alerts.length > 1)
+              TextButton(
+                onPressed: onToggle,
+                child: Text(
+                  expanded ? 'Show less' : 'Show all ${alerts.length}',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                ),
+              ),
+          ],
+        ),
+        ...visible.map((alert) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: const Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onOpen(alert),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFDBA74)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${alert['body'] ?? alert['title'] ?? 'Needs a decision'}',
+                          style: const TextStyle(fontWeight: FontWeight.w700, height: 1.35),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.chevron_right, color: Color(0xFFC2410C), size: 20),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+        if (!expanded && hidden > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              '+$hidden more — tap Show all',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+            ),
+          ),
+      ],
     );
   }
 }

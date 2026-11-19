@@ -1389,8 +1389,67 @@ class _TransferDetailState extends State<_TransferDetail> {
     }
   }
 
-  Future<void> _pickProofForComplete() async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+  Future<ImageSource?> _chooseProofSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Proof screenshot',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Take a photo or upload from gallery. Optional.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.photo_camera_outlined, color: AppColors.emerald),
+                title: const Text('Take photo', style: TextStyle(fontWeight: FontWeight.w800)),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.photo_library_outlined, color: AppColors.emerald),
+                title: const Text('Upload from gallery', style: TextStyle(fontWeight: FontWeight.w800)),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickProofForComplete({ImageSource? source}) async {
+    final chosen = source ?? await _chooseProofSource();
+    if (chosen == null || !mounted) return;
+    final file = await ImagePicker().pickImage(source: chosen, imageQuality: 85, maxWidth: 2000);
     if (file == null || !mounted) return;
     final bytes = await File(file.path).length();
     setState(() {
@@ -1976,17 +2035,38 @@ class _TransferDetailState extends State<_TransferDetail> {
                             ),
                             const SizedBox(height: 14),
                             if (pendingProofPath == null)
-                              OutlinedButton.icon(
-                                onPressed: _pickProofForComplete,
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  side: const BorderSide(color: Color(0xFF6EE7B7)),
-                                ),
-                                icon: const Icon(Icons.add_photo_alternate_outlined, color: AppColors.emerald),
-                                label: const Text(
-                                  'Add proof screenshot (optional)',
-                                  style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _pickProofForComplete(source: ImageSource.camera),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                      ),
+                                      icon: const Icon(Icons.photo_camera_outlined, color: AppColors.emerald),
+                                      label: const Text(
+                                        'Camera',
+                                        style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _pickProofForComplete(source: ImageSource.gallery),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                      ),
+                                      icon: const Icon(Icons.upload_file_outlined, color: AppColors.emerald),
+                                      label: const Text(
+                                        'Upload',
+                                        style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               )
                             else ...[
                               Container(
@@ -2123,17 +2203,38 @@ class _TransferDetailState extends State<_TransferDetail> {
                             ),
                             const SizedBox(height: 14),
                             if (pendingProofPath == null)
-                              OutlinedButton.icon(
-                                onPressed: _pickProofForComplete,
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  side: const BorderSide(color: Color(0xFF6EE7B7)),
-                                ),
-                                icon: const Icon(Icons.add_photo_alternate_outlined, color: AppColors.emerald),
-                                label: const Text(
-                                  'Add payout proof',
-                                  style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _pickProofForComplete(source: ImageSource.camera),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                      ),
+                                      icon: const Icon(Icons.photo_camera_outlined, color: AppColors.emerald),
+                                      label: const Text(
+                                        'Camera',
+                                        style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _pickProofForComplete(source: ImageSource.gallery),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                      ),
+                                      icon: const Icon(Icons.upload_file_outlined, color: AppColors.emerald),
+                                      label: const Text(
+                                        'Upload',
+                                        style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.emerald),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               )
                             else ...[
                               Container(

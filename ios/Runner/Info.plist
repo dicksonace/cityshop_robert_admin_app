@@ -47,6 +47,8 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>CityShop Admin uses the camera to capture Alipay and MoMo proof screenshots.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>CityShop Admin uses photos to attach payout and transfer proof.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
